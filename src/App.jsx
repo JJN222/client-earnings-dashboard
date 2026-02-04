@@ -3,6 +3,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 
 const ACCENT = '#7DD3FC';
 const ACCENT_DARK = '#0EA5E9';
+const API_VERSION = 'v24.0';
+const MICRO_DIVISOR = 100000000; // microAmount ÷ this = USD
 
 // ============================================================
 // UPDATE THIS DATA EACH MONTH - See instructions in README.md
@@ -35,8 +37,8 @@ const INITIAL_DATA = {
       { channel: 'Phaith Montoya', revenue: 3.42, views: 28562, cpm: 4.864, rpm: 0.237, subscribers: -167, watchHours: 95 },
     ],
     facebook: [
-      { page: 'Celinaspookyboo', revenue: 41167.21, views: 107596233, rpm: 0.41, engagements: 9162821 },
-      { page: 'Brave Wilderness', revenue: 1853.10, views: 5457612, rpm: 0.36, engagements: 283027 },
+      { page: 'Celinaspookyboo', revenue: 41167.21, views: 107596233, rpm: 0.41, engagements: 0 },
+      { page: 'Brave Wilderness', revenue: 1853.10, views: 5457612, rpm: 0.36, engagements: 0 },
     ]
   }
 };
@@ -46,7 +48,6 @@ const INITIAL_DATA = {
 const getAdminFromURL = () => {
   if (typeof window !== 'undefined') {
     const params = new URLSearchParams(window.location.search);
-    // CHANGE THIS PASSWORD to something secure!
     return params.get('admin') === 'true' || params.get('key') === 'shorthand2026';
   }
   return false;
@@ -54,40 +55,96 @@ const getAdminFromURL = () => {
 
 // LocalStorage helpers
 const STORAGE_KEY = 'clientEarningsData';
+const META_CONFIG_KEY = 'metaApiConfig';
 
-const loadFromStorage = () => {
+const loadFromStorage = (key) => {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      return JSON.parse(saved);
-    }
+    const saved = localStorage.getItem(key);
+    if (saved) return JSON.parse(saved);
   } catch (e) {
     console.error('Failed to load from storage:', e);
   }
   return null;
 };
 
-const saveToStorage = (data) => {
+const saveToStorage = (key, data) => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    localStorage.setItem(key, JSON.stringify(data));
   } catch (e) {
     console.error('Failed to save to storage:', e);
   }
 };
 
+// ============================================================
+// META GRAPH API HELPERS
+// ============================================================
+
+// Get the first and last day of a month from "January 2026" format
+const getMonthDateRange = (monthStr) => {
+  const parts = monthStr.split(' ');
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const monthIndex = monthNames.indexOf(parts[0]);
+  const year = parseInt(parts[1]);
+  if (monthIndex === -1 || isNaN(year)) return null;
+  
+  const since = `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`;
+  // Last day of month
+  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+  const until = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${lastDay}`;
+  return { since, until };
+};
+
+// Fetch all pages from the system user token
+const fetchPages = async (systemToken) => {
+  const allPages = [];
+  let url = `https://graph.facebook.com/${API_VERSION}/me/accounts?limit=100&access_token=${systemToken}`;
+  
+  while (url) {
+    const response = await fetch(url);
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+    if (data.data) allPages.push(...data.data);
+    url = data.paging?.next || null;
+  }
+  
+  return allPages;
+};
+
+// Fetch insights for a single page
+const fetchPageInsights = async (pageId, pageToken, metric, since, until) => {
+  const url = `https://graph.facebook.com/${API_VERSION}/${pageId}/insights?metric=${metric}&period=day&since=${since}&until=${until}&access_token=${pageToken}`;
+  const response = await fetch(url);
+  const data = await response.json();
+  if (data.error) {
+    console.warn(`Error fetching ${metric} for page ${pageId}: ${data.error.message}`);
+    return null;
+  }
+  return data.data?.[0]?.values || null;
+};
+
+// Aggregate daily values into a monthly total
+const sumDailyValues = (values, isRevenue = false) => {
+  if (!values || values.length === 0) return 0;
+  return values.reduce((sum, day) => {
+    if (isRevenue) {
+      // Revenue comes as { currency, microAmount }
+      const micro = day.value?.microAmount || 0;
+      return sum + micro / MICRO_DIVISOR;
+    }
+    return sum + (day.value || 0);
+  }, 0);
+};
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
 export default function App() {
-  // Load from localStorage first, fall back to INITIAL_DATA
-  const [allData, setAllData] = useState(() => {
-    const saved = loadFromStorage();
-    return saved || INITIAL_DATA;
-  });
-  
+  const [allData, setAllData] = useState(() => loadFromStorage(STORAGE_KEY) || INITIAL_DATA);
   const [selectedMonth, setSelectedMonth] = useState(() => {
-    const saved = loadFromStorage();
-    const data = saved || INITIAL_DATA;
-    return Object.keys(data)[0] || 'January 2026';
+    const data = loadFromStorage(STORAGE_KEY) || INITIAL_DATA;
+    return Object.keys(data).sort().pop() || 'January 2026';
   });
-  
+
   const [activeTab, setActiveTab] = useState('overview');
   const [sortBy, setSortBy] = useState('revenue');
   const [sortOrder, setSortOrder] = useState('desc');
@@ -100,22 +157,19 @@ export default function App() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
-  const [showExportModal, setShowExportModal] = useState(false);
 
-  // Check for admin access on mount
-  useEffect(() => {
-    setIsAdmin(getAdminFromURL());
-  }, []);
+  // Meta API state
+  const [showMetaSettings, setShowMetaSettings] = useState(false);
+  const [metaConfig, setMetaConfig] = useState(() => loadFromStorage(META_CONFIG_KEY) || { systemToken: '' });
+  const [metaTokenInput, setMetaTokenInput] = useState('');
+  const [fetchingFB, setFetchingFB] = useState(false);
+  const [fetchProgress, setFetchProgress] = useState('');
+  const [fetchLog, setFetchLog] = useState([]);
 
-  // Save to localStorage whenever data changes (admin only)
-  useEffect(() => {
-    if (isAdmin) {
-      saveToStorage(allData);
-    }
-  }, [allData, isAdmin]);
+  useEffect(() => { setIsAdmin(getAdminFromURL()); }, []);
+  useEffect(() => { if (isAdmin) saveToStorage(STORAGE_KEY, allData); }, [allData, isAdmin]);
 
   const handlePasswordSubmit = () => {
-    // CHANGE THIS PASSWORD to something secure!
     if (passwordInput === 'shorthand2026') {
       setIsAdmin(true);
       setShowPasswordModal(false);
@@ -126,7 +180,6 @@ export default function App() {
     }
   };
 
-  // Export data as JSON for updating INITIAL_DATA
   const exportData = () => {
     const dataStr = JSON.stringify(allData, null, 2);
     navigator.clipboard.writeText(dataStr);
@@ -134,7 +187,6 @@ export default function App() {
     setTimeout(() => setUploadStatus(''), 3000);
   };
 
-  // Reset to initial data
   const resetData = () => {
     if (confirm('Reset all data to the default? This cannot be undone.')) {
       setAllData(INITIAL_DATA);
@@ -143,12 +195,137 @@ export default function App() {
     }
   };
 
-  // Get current month's data
+  // ============================================================
+  // META API: SAVE TOKEN
+  // ============================================================
+  const saveMetaToken = () => {
+    const config = { systemToken: metaTokenInput.trim() };
+    setMetaConfig(config);
+    saveToStorage(META_CONFIG_KEY, config);
+    setShowMetaSettings(false);
+    setUploadStatus('✓ Meta API token saved');
+    setTimeout(() => setUploadStatus(''), 3000);
+  };
+
+  // ============================================================
+  // META API: FETCH ALL FACEBOOK DATA
+  // ============================================================
+  const fetchFacebookData = async () => {
+    if (!metaConfig.systemToken) {
+      setShowMetaSettings(true);
+      return;
+    }
+
+    const dateRange = getMonthDateRange(selectedMonth);
+    if (!dateRange) {
+      setUploadStatus('❌ Could not parse month. Use format "January 2026"');
+      return;
+    }
+
+    setFetchingFB(true);
+    setFetchLog([]);
+    const log = (msg) => setFetchLog(prev => [...prev, msg]);
+
+    try {
+      // Step 1: Get all pages
+      log('📋 Fetching page list...');
+      setFetchProgress('Fetching pages...');
+      const pages = await fetchPages(metaConfig.systemToken);
+      log(`✓ Found ${pages.length} pages`);
+
+      // Step 2: For each page, fetch revenue + views
+      const fbResults = [];
+      let successCount = 0;
+      let skipCount = 0;
+
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i];
+        const pageName = page.name;
+        const pageId = page.id;
+        const pageToken = page.access_token;
+
+        setFetchProgress(`Fetching ${pageName} (${i + 1}/${pages.length})...`);
+        log(`📊 Fetching ${pageName}...`);
+
+        // Check if page has monetization task
+        const hasMon = page.tasks?.includes('VIEW_MONETIZATION_INSIGHTS');
+
+        // Fetch revenue
+        const revenueData = await fetchPageInsights(
+          pageId, pageToken, 'content_monetization_earnings',
+          dateRange.since, dateRange.until
+        );
+
+        // Fetch views
+        const viewsData = await fetchPageInsights(
+          pageId, pageToken, 'page_video_views',
+          dateRange.since, dateRange.until
+        );
+
+        const revenue = sumDailyValues(revenueData, true);
+        const views = sumDailyValues(viewsData, false);
+
+        // Only include pages that have some data
+        if (revenue > 0 || views > 0) {
+          const rpm = views > 0 ? (revenue / views) * 1000 : 0;
+          fbResults.push({
+            page: pageName,
+            pageId: pageId,
+            revenue: Math.round(revenue * 100) / 100,
+            views: views,
+            rpm: Math.round(rpm * 100) / 100,
+            engagements: 0,
+          });
+          log(`  ✓ ${pageName}: $${revenue.toFixed(2)} revenue, ${views.toLocaleString()} views`);
+          successCount++;
+        } else {
+          log(`  ⊘ ${pageName}: no revenue/views data`);
+          skipCount++;
+        }
+
+        // Small delay to avoid rate limiting
+        if (i < pages.length - 1) {
+          await new Promise(r => setTimeout(r, 200));
+        }
+      }
+
+      // Sort by revenue
+      fbResults.sort((a, b) => b.revenue - a.revenue);
+
+      // Step 3: Update dashboard data
+      setAllData(prev => ({
+        ...prev,
+        [selectedMonth]: {
+          ...prev[selectedMonth],
+          facebook: fbResults
+        }
+      }));
+
+      const totalRevenue = fbResults.reduce((sum, p) => sum + p.revenue, 0);
+      log('');
+      log(`✅ Done! ${successCount} pages with data, ${skipCount} skipped`);
+      log(`💰 Total Facebook revenue: $${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`);
+      setFetchProgress('');
+      setUploadStatus(`✓ Loaded ${fbResults.length} Facebook pages via API`);
+      setTimeout(() => setUploadStatus(''), 5000);
+
+    } catch (err) {
+      log(`❌ Error: ${err.message}`);
+      setFetchProgress('');
+      setUploadStatus(`❌ API error: ${err.message}`);
+      setTimeout(() => setUploadStatus(''), 5000);
+    } finally {
+      setFetchingFB(false);
+    }
+  };
+
+  // ============================================================
+  // CSV PARSING (kept as fallback)
+  // ============================================================
   const youtubeData = allData[selectedMonth]?.youtube || [];
   const facebookData = allData[selectedMonth]?.facebook || [];
   const months = Object.keys(allData).sort();
 
-  // CSV Parsers
   const parseYoutubeCSV = (text) => {
     const lines = text.trim().split('\n');
     const headers = lines[0].split(',');
@@ -159,7 +336,7 @@ export default function App() {
     const rpmIdx = headers.findIndex(h => h.includes('RPM'));
     const subsIdx = headers.findIndex(h => h === 'Subscribers');
     const watchHoursIdx = headers.findIndex(h => h.includes('Watch time'));
-    
+
     const data = [];
     for (let i = 1; i < lines.length; i++) {
       const values = lines[i].split(',');
@@ -187,13 +364,12 @@ export default function App() {
     const viewsIdx = headers.findIndex(h => h.includes('Qualified Views'));
     const rpmIdx = headers.findIndex(h => h.includes('RPM'));
     const engagementsIdx = headers.findIndex(h => h.includes('Unique user engagements'));
-    
+
     const pageData = new Map();
     for (let i = 1; i < lines.length; i++) {
       const values = lines[i].split(',').map(v => v.replace(/"/g, ''));
       const pageName = values[pageNameIdx];
       if (!pageName) continue;
-      
       if (!pageData.has(pageName)) {
         pageData.set(pageName, { revenue: 0, views: 0, rpmSum: 0, rpmCount: 0, engagements: 0 });
       }
@@ -204,7 +380,7 @@ export default function App() {
       pd.rpmCount += 1;
       pd.engagements += parseInt(values[engagementsIdx]) || 0;
     }
-    
+
     return Array.from(pageData.entries())
       .map(([page, data]) => ({
         page,
@@ -216,124 +392,68 @@ export default function App() {
       .sort((a, b) => b.revenue - a.revenue);
   };
 
-  // Auto-detect file type
   const detectFileType = (text) => {
     const firstLine = text.split('\n')[0].toLowerCase();
-    if (firstLine.includes('channel title') || firstLine.includes('estimated partner revenue')) {
-      return 'youtube';
-    }
-    if (firstLine.includes('page name') || firstLine.includes('page id') || firstLine.includes('qualified views')) {
-      return 'facebook';
-    }
+    if (firstLine.includes('channel title') || firstLine.includes('estimated partner revenue')) return 'youtube';
+    if (firstLine.includes('page name') || firstLine.includes('page id') || firstLine.includes('qualified views')) return 'facebook';
     return null;
   };
 
-  // Process uploaded file
   const processFile = useCallback((file) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target.result;
-      
       let fileType = selectedPlatform;
       if (fileType === 'auto') {
         fileType = detectFileType(text);
-        if (!fileType) {
-          setUploadStatus('Could not detect file type. Please select a platform manually.');
-          return;
-        }
+        if (!fileType) { setUploadStatus('Could not detect file type.'); return; }
       }
-
       let parsedData;
       if (fileType === 'youtube') {
         parsedData = parseYoutubeCSV(text);
         if (parsedData.length > 0) {
-          setAllData(prev => ({
-            ...prev,
-            [selectedMonth]: {
-              ...prev[selectedMonth],
-              youtube: parsedData
-            }
-          }));
+          setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], youtube: parsedData } }));
           setUploadStatus(`✓ Loaded ${parsedData.length} YouTube channels`);
-        } else {
-          setUploadStatus('No data found. Check that the file has the right columns.');
         }
       } else if (fileType === 'facebook') {
         parsedData = parseFacebookCSV(text);
         if (parsedData.length > 0) {
-          setAllData(prev => ({
-            ...prev,
-            [selectedMonth]: {
-              ...prev[selectedMonth],
-              facebook: parsedData
-            }
-          }));
+          setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], facebook: parsedData } }));
           setUploadStatus(`✓ Loaded ${parsedData.length} Facebook pages`);
-        } else {
-          setUploadStatus('No data found. Check that the file has the right columns.');
         }
       }
-      
       setTimeout(() => setUploadStatus(''), 3000);
     };
     reader.readAsText(file);
   }, [selectedMonth, selectedPlatform]);
 
-  // Drag and drop handlers
-  const handleDragOver = useCallback((e) => {
-    e.preventDefault();
-    setDragOver(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e) => {
-    e.preventDefault();
-    setDragOver(false);
-  }, []);
-
+  const handleDragOver = useCallback((e) => { e.preventDefault(); setDragOver(true); }, []);
+  const handleDragLeave = useCallback((e) => { e.preventDefault(); setDragOver(false); }, []);
   const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    setDragOver(false);
-    const files = Array.from(e.dataTransfer.files);
-    files.forEach(file => {
-      if (file.name.endsWith('.csv')) {
-        processFile(file);
-      }
-    });
+    e.preventDefault(); setDragOver(false);
+    Array.from(e.dataTransfer.files).forEach(file => { if (file.name.endsWith('.csv')) processFile(file); });
   }, [processFile]);
+  const handleFileSelect = (e) => { Array.from(e.target.files).forEach(processFile); };
 
-  const handleFileSelect = (e) => {
-    const files = Array.from(e.target.files);
-    files.forEach(processFile);
-  };
-
-  // Add new month
   const addNewMonth = () => {
     if (newMonthName && !allData[newMonthName]) {
-      setAllData(prev => ({
-        ...prev,
-        [newMonthName]: { youtube: [], facebook: [] }
-      }));
+      setAllData(prev => ({ ...prev, [newMonthName]: { youtube: [], facebook: [] } }));
       setSelectedMonth(newMonthName);
       setNewMonthName('');
       setShowAddMonth(false);
     }
   };
 
-  // Delete month
   const deleteMonth = (month) => {
     if (months.length > 1 && confirm(`Delete ${month} data?`)) {
-      setAllData(prev => {
-        const newData = { ...prev };
-        delete newData[month];
-        return newData;
-      });
-      if (selectedMonth === month) {
-        setSelectedMonth(months.find(m => m !== month));
-      }
+      setAllData(prev => { const d = { ...prev }; delete d[month]; return d; });
+      if (selectedMonth === month) setSelectedMonth(months.find(m => m !== month));
     }
   };
 
-  // Calculations
+  // ============================================================
+  // COMPUTED DATA
+  // ============================================================
   const combinedData = useMemo(() => {
     const clientMap = new Map();
     youtubeData.forEach(item => {
@@ -356,21 +476,15 @@ export default function App() {
     const fbRevenue = facebookData.reduce((sum, d) => sum + d.revenue, 0);
     const ytViews = youtubeData.reduce((sum, d) => sum + d.views, 0);
     const fbViews = facebookData.reduce((sum, d) => sum + d.views, 0);
-    return {
-      totalRevenue: ytRevenue + fbRevenue,
-      youtubeRevenue: ytRevenue,
-      facebookRevenue: fbRevenue,
-      totalViews: ytViews + fbViews,
-    };
+    return { totalRevenue: ytRevenue + fbRevenue, youtubeRevenue: ytRevenue, facebookRevenue: fbRevenue, totalViews: ytViews + fbViews };
   }, [youtubeData, facebookData]);
 
-  // Monthly trend data
   const trendData = useMemo(() => {
     return months.map(month => {
       const yt = allData[month]?.youtube || [];
       const fb = allData[month]?.facebook || [];
       return {
-        month: month.replace(' 20', ' \''),
+        month: month.replace(' 20', " '"),
         youtube: yt.reduce((sum, d) => sum + d.revenue, 0),
         facebook: fb.reduce((sum, d) => sum + d.revenue, 0),
         total: yt.reduce((sum, d) => sum + d.revenue, 0) + fb.reduce((sum, d) => sum + d.revenue, 0)
@@ -379,17 +493,11 @@ export default function App() {
   }, [allData, months]);
 
   const sortedYoutubeData = useMemo(() => {
-    return [...youtubeData].sort((a, b) => {
-      const mult = sortOrder === 'desc' ? -1 : 1;
-      return mult * (a[sortBy] - b[sortBy]);
-    });
+    return [...youtubeData].sort((a, b) => { const m = sortOrder === 'desc' ? -1 : 1; return m * (a[sortBy] - b[sortBy]); });
   }, [youtubeData, sortBy, sortOrder]);
 
   const sortedFacebookData = useMemo(() => {
-    return [...facebookData].sort((a, b) => {
-      const mult = sortOrder === 'desc' ? -1 : 1;
-      return mult * ((a[sortBy] || 0) - (b[sortBy] || 0));
-    });
+    return [...facebookData].sort((a, b) => { const m = sortOrder === 'desc' ? -1 : 1; return m * ((a[sortBy]||0) - (b[sortBy]||0)); });
   }, [facebookData, sortBy, sortOrder]);
 
   const top10Revenue = combinedData.slice(0, 10);
@@ -410,268 +518,54 @@ export default function App() {
     return val.toLocaleString();
   };
 
+  // ============================================================
+  // STYLES
+  // ============================================================
   const styles = {
-    container: {
-      minHeight: '100vh',
-      background: '#FFFFFF',
-      fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
-      color: '#1a1a1a',
-      padding: '48px 64px',
-      maxWidth: '1400px',
-      margin: '0 auto'
-    },
+    container: { minHeight: '100vh', background: '#FFFFFF', fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", color: '#1a1a1a', padding: '48px 64px', maxWidth: '1400px', margin: '0 auto' },
     header: { marginBottom: '48px' },
-    title: {
-      fontSize: '48px',
-      fontWeight: '700',
-      margin: 0,
-      letterSpacing: '-1px',
-      display: 'flex',
-      alignItems: 'baseline',
-      gap: '8px'
-    },
-    dot: {
-      width: '12px',
-      height: '12px',
-      background: ACCENT,
-      borderRadius: '50%',
-      display: 'inline-block'
-    },
-    subtitle: {
-      color: '#666',
-      marginTop: '8px',
-      fontSize: '16px'
-    },
-    adminBanner: {
-      background: '#fef3c7',
-      border: '1px solid #f59e0b',
-      borderRadius: '8px',
-      padding: '12px 20px',
-      marginBottom: '24px',
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      fontSize: '14px'
-    },
-    monthSelector: {
-      display: 'flex',
-      gap: '12px',
-      marginBottom: '32px',
-      alignItems: 'center',
-      flexWrap: 'wrap'
-    },
-    monthPill: (active) => ({
-      padding: '8px 16px',
-      borderRadius: '100px',
-      border: active ? 'none' : '1px solid #ddd',
-      background: active ? '#1a1a1a' : 'transparent',
-      color: active ? '#fff' : '#666',
-      fontWeight: '500',
-      cursor: 'pointer',
-      fontSize: '14px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px'
-    }),
-    addMonthBtn: {
-      padding: '8px 16px',
-      borderRadius: '100px',
-      border: '1px dashed #ddd',
-      background: 'transparent',
-      color: '#999',
-      cursor: 'pointer',
-      fontSize: '14px'
-    },
-    dropZone: (isDragOver) => ({
-      border: `2px dashed ${isDragOver ? ACCENT_DARK : '#ddd'}`,
-      borderRadius: '12px',
-      padding: '40px',
-      textAlign: 'center',
-      marginBottom: '48px',
-      background: isDragOver ? '#f0f9ff' : '#fafafa',
-      transition: 'all 0.2s'
-    }),
-    dropZoneTitle: {
-      fontSize: '18px',
-      fontWeight: '600',
-      marginBottom: '8px'
-    },
-    dropZoneText: {
-      color: '#666',
-      fontSize: '14px',
-      marginBottom: '16px'
-    },
-    fileInput: {
-      display: 'none'
-    },
-    uploadBtn: {
-      padding: '10px 24px',
-      borderRadius: '8px',
-      border: 'none',
-      background: ACCENT,
-      color: '#0c4a6e',
-      fontWeight: '500',
-      cursor: 'pointer',
-      fontSize: '14px'
-    },
-    statusMessage: {
-      marginTop: '12px',
-      fontSize: '14px',
-      color: ACCENT_DARK,
-      fontWeight: '500'
-    },
-    metricsGrid: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(4, 1fr)',
-      gap: '0',
-      marginBottom: '48px',
-      borderTop: '1px solid #eee',
-      borderBottom: '1px solid #eee'
-    },
-    metricCard: {
-      padding: '32px 0',
-      borderRight: '1px solid #eee'
-    },
-    metricNumber: {
-      fontSize: '14px',
-      color: ACCENT,
-      fontWeight: '500',
-      marginBottom: '8px'
-    },
-    metricValue: {
-      fontSize: '32px',
-      fontWeight: '700',
-      marginBottom: '4px'
-    },
-    metricLabel: {
-      fontSize: '14px',
-      color: '#666'
-    },
-    tabs: {
-      display: 'flex',
-      gap: '8px',
-      marginBottom: '48px'
-    },
-    tab: (active) => ({
-      padding: '12px 24px',
-      borderRadius: '100px',
-      border: 'none',
-      background: active ? ACCENT : 'transparent',
-      color: active ? '#0c4a6e' : '#666',
-      fontWeight: '500',
-      cursor: 'pointer',
-      fontSize: '14px'
-    }),
-    sectionTitle: {
-      fontSize: '28px',
-      fontWeight: '700',
-      marginBottom: '8px'
-    },
-    sectionSubtitle: {
-      color: '#666',
-      marginBottom: '32px',
-      fontSize: '15px'
-    },
-    chartsRow: {
-      display: 'grid',
-      gridTemplateColumns: '2fr 1fr',
-      gap: '64px',
-      marginBottom: '64px'
-    },
-    table: {
-      width: '100%',
-      borderCollapse: 'collapse',
-      fontSize: '14px'
-    },
-    th: {
-      textAlign: 'left',
-      padding: '16px 12px',
-      borderBottom: '2px solid #1a1a1a',
-      fontWeight: '600',
-      fontSize: '12px',
-      textTransform: 'uppercase',
-      letterSpacing: '0.5px',
-      color: '#666'
-    },
-    thRight: {
-      textAlign: 'right',
-      padding: '16px 12px',
-      borderBottom: '2px solid #1a1a1a',
-      fontWeight: '600',
-      fontSize: '12px',
-      textTransform: 'uppercase',
-      letterSpacing: '0.5px',
-      color: '#666'
-    },
-    td: {
-      padding: '16px 12px',
-      borderBottom: '1px solid #eee'
-    },
-    tdRight: {
-      padding: '16px 12px',
-      borderBottom: '1px solid #eee',
-      textAlign: 'right'
-    },
-    rowNumber: {
-      color: ACCENT,
-      fontWeight: '500',
-      fontSize: '14px',
-      width: '48px'
-    },
-    sortControls: {
-      display: 'flex',
-      gap: '12px',
-      marginBottom: '24px',
-      alignItems: 'center'
-    },
-    select: {
-      padding: '10px 16px',
-      borderRadius: '8px',
-      border: '1px solid #ddd',
-      background: '#fff',
-      fontSize: '14px',
-      color: '#1a1a1a',
-      cursor: 'pointer'
-    },
-    modal: {
-      position: 'fixed',
-      inset: 0,
-      background: 'rgba(0,0,0,0.5)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000
-    },
-    modalContent: {
-      background: '#fff',
-      padding: '32px',
-      borderRadius: '12px',
-      width: '400px',
-      maxHeight: '80vh',
-      overflow: 'auto'
-    },
-    input: {
-      width: '100%',
-      padding: '12px 16px',
-      borderRadius: '8px',
-      border: '1px solid #ddd',
-      fontSize: '16px',
-      marginBottom: '16px',
-      boxSizing: 'border-box'
-    },
-    textarea: {
-      width: '100%',
-      padding: '12px 16px',
-      borderRadius: '8px',
-      border: '1px solid #ddd',
-      fontSize: '12px',
-      fontFamily: 'monospace',
-      marginBottom: '16px',
-      boxSizing: 'border-box',
-      minHeight: '200px'
-    }
+    title: { fontSize: '48px', fontWeight: '700', margin: 0, letterSpacing: '-1px', display: 'flex', alignItems: 'baseline', gap: '8px' },
+    dot: { width: '12px', height: '12px', background: ACCENT, borderRadius: '50%', display: 'inline-block' },
+    subtitle: { color: '#666', marginTop: '8px', fontSize: '16px' },
+    adminBanner: { background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: '8px', padding: '12px 20px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px', flexWrap: 'wrap', gap: '12px' },
+    monthSelector: { display: 'flex', gap: '12px', marginBottom: '32px', alignItems: 'center', flexWrap: 'wrap' },
+    monthPill: (active) => ({ padding: '8px 16px', borderRadius: '100px', border: active ? 'none' : '1px solid #ddd', background: active ? '#1a1a1a' : 'transparent', color: active ? '#fff' : '#666', fontWeight: '500', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }),
+    addMonthBtn: { padding: '8px 16px', borderRadius: '100px', border: '1px dashed #ddd', background: 'transparent', color: '#999', cursor: 'pointer', fontSize: '14px' },
+    dropZone: (isDragOver) => ({ border: `2px dashed ${isDragOver ? ACCENT_DARK : '#ddd'}`, borderRadius: '12px', padding: '40px', textAlign: 'center', marginBottom: '48px', background: isDragOver ? '#f0f9ff' : '#fafafa', transition: 'all 0.2s' }),
+    dropZoneTitle: { fontSize: '18px', fontWeight: '600', marginBottom: '8px' },
+    dropZoneText: { color: '#666', fontSize: '14px', marginBottom: '16px' },
+    fileInput: { display: 'none' },
+    uploadBtn: { padding: '10px 24px', borderRadius: '8px', border: 'none', background: ACCENT, color: '#0c4a6e', fontWeight: '500', cursor: 'pointer', fontSize: '14px' },
+    fetchBtn: { padding: '10px 24px', borderRadius: '8px', border: '2px solid #1877F2', background: '#fff', color: '#1877F2', fontWeight: '600', cursor: 'pointer', fontSize: '14px', display: 'inline-flex', alignItems: 'center', gap: '8px' },
+    fetchBtnDisabled: { padding: '10px 24px', borderRadius: '8px', border: '2px solid #ccc', background: '#f5f5f5', color: '#999', fontWeight: '600', fontSize: '14px', cursor: 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: '8px' },
+    statusMessage: { marginTop: '12px', fontSize: '14px', color: ACCENT_DARK, fontWeight: '500' },
+    metricsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0', marginBottom: '48px', borderTop: '1px solid #eee', borderBottom: '1px solid #eee' },
+    metricCard: { padding: '32px 0', borderRight: '1px solid #eee' },
+    metricNumber: { fontSize: '14px', color: ACCENT, fontWeight: '500', marginBottom: '8px' },
+    metricValue: { fontSize: '32px', fontWeight: '700', marginBottom: '4px' },
+    metricLabel: { fontSize: '14px', color: '#666' },
+    tabs: { display: 'flex', gap: '8px', marginBottom: '48px' },
+    tab: (active) => ({ padding: '12px 24px', borderRadius: '100px', border: 'none', background: active ? ACCENT : 'transparent', color: active ? '#0c4a6e' : '#666', fontWeight: '500', cursor: 'pointer', fontSize: '14px' }),
+    sectionTitle: { fontSize: '28px', fontWeight: '700', marginBottom: '8px' },
+    sectionSubtitle: { color: '#666', marginBottom: '32px', fontSize: '15px' },
+    chartsRow: { display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '64px', marginBottom: '64px' },
+    table: { width: '100%', borderCollapse: 'collapse', fontSize: '14px' },
+    th: { textAlign: 'left', padding: '16px 12px', borderBottom: '2px solid #1a1a1a', fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#666' },
+    thRight: { textAlign: 'right', padding: '16px 12px', borderBottom: '2px solid #1a1a1a', fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#666' },
+    td: { padding: '16px 12px', borderBottom: '1px solid #eee' },
+    tdRight: { padding: '16px 12px', borderBottom: '1px solid #eee', textAlign: 'right' },
+    rowNumber: { color: ACCENT, fontWeight: '500', fontSize: '14px', width: '48px' },
+    sortControls: { display: 'flex', gap: '12px', marginBottom: '24px', alignItems: 'center' },
+    select: { padding: '10px 16px', borderRadius: '8px', border: '1px solid #ddd', background: '#fff', fontSize: '14px', color: '#1a1a1a', cursor: 'pointer' },
+    modal: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+    modalContent: { background: '#fff', padding: '32px', borderRadius: '12px', width: '520px', maxHeight: '80vh', overflow: 'auto' },
+    input: { width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '16px', marginBottom: '16px', boxSizing: 'border-box' },
+    logBox: { background: '#1a1a1a', color: '#86efac', borderRadius: '8px', padding: '16px', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.6', maxHeight: '300px', overflowY: 'auto', marginBottom: '16px', whiteSpace: 'pre-wrap' },
   };
 
+  // ============================================================
+  // RENDER
+  // ============================================================
   return (
     <div style={styles.container}>
       {/* Header */}
@@ -687,8 +581,18 @@ export default function App() {
       {/* Admin Banner */}
       {isAdmin && (
         <div style={styles.adminBanner}>
-          <span>🔐 <strong>Admin Mode</strong> — Upload and manage data</span>
-          <div style={{ display: 'flex', gap: '12px' }}>
+          <span>🔐 <strong>Admin Mode</strong> — Upload, fetch, and manage data</span>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              onClick={fetchFacebookData}
+              disabled={fetchingFB}
+              style={fetchingFB ? styles.fetchBtnDisabled : styles.fetchBtn}
+            >
+              {fetchingFB ? '⏳ Fetching...' : '📘 Fetch Facebook Data'}
+            </button>
+            <button onClick={() => { setMetaTokenInput(metaConfig.systemToken || ''); setShowMetaSettings(true); }} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
+              ⚙️ API Settings
+            </button>
             <button onClick={exportData} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
               Export Data
             </button>
@@ -699,78 +603,64 @@ export default function App() {
         </div>
       )}
 
+      {/* Fetch Progress */}
+      {fetchingFB && fetchProgress && (
+        <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '16px', marginBottom: '24px' }}>
+          <div style={{ fontSize: '14px', fontWeight: '500', color: '#0369a1', marginBottom: '8px' }}>
+            {fetchProgress}
+          </div>
+          {fetchLog.length > 0 && (
+            <div style={styles.logBox}>
+              {fetchLog.map((line, i) => <div key={i}>{line}</div>)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Fetch Complete Log */}
+      {!fetchingFB && fetchLog.length > 0 && (
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '16px', marginBottom: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '14px', fontWeight: '600', color: '#166534' }}>Fetch Complete</span>
+            <button onClick={() => setFetchLog([])} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '12px' }}>Dismiss</button>
+          </div>
+          <div style={styles.logBox}>
+            {fetchLog.map((line, i) => <div key={i}>{line}</div>)}
+          </div>
+        </div>
+      )}
+
       {/* Month Selector */}
       <div style={styles.monthSelector}>
         {months.map(month => (
-          <button
-            key={month}
-            onClick={() => setSelectedMonth(month)}
-            style={styles.monthPill(selectedMonth === month)}
-          >
+          <button key={month} onClick={() => setSelectedMonth(month)} style={styles.monthPill(selectedMonth === month)}>
             {month}
             {isAdmin && months.length > 1 && selectedMonth === month && (
-              <span 
-                onClick={(e) => { e.stopPropagation(); deleteMonth(month); }}
-                style={{ marginLeft: '4px', opacity: 0.6, cursor: 'pointer' }}
-              >×</span>
+              <span onClick={(e) => { e.stopPropagation(); deleteMonth(month); }} style={{ marginLeft: '4px', opacity: 0.6, cursor: 'pointer' }}>×</span>
             )}
           </button>
         ))}
         {isAdmin && (
-          <button onClick={() => setShowAddMonth(true)} style={styles.addMonthBtn}>
-            + Add Month
-          </button>
+          <button onClick={() => setShowAddMonth(true)} style={styles.addMonthBtn}>+ Add Month</button>
         )}
       </div>
 
       {/* Drop Zone - Admin Only */}
       {isAdmin && (
-        <div
-          style={styles.dropZone(dragOver)}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-        >
+        <div style={styles.dropZone(dragOver)} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
           <div style={styles.dropZoneTitle}>Drop CSV files here</div>
           <div style={styles.dropZoneText}>
-            Select a platform below, then drag your file or click to browse
+            Auto-detects YouTube or Facebook exports • Or use "Fetch Facebook Data" above to pull from API
           </div>
-          
-          {/* Platform Selector */}
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '20px' }}>
-            {[
-              { id: 'auto', label: 'Auto-detect' },
-              { id: 'youtube', label: 'YouTube' },
-              { id: 'facebook', label: 'Facebook' },
-            ].map(platform => (
-              <button
-                key={platform.id}
-                onClick={() => setSelectedPlatform(platform.id)}
-                style={{
-                  padding: '8px 20px',
-                  borderRadius: '100px',
-                  border: selectedPlatform === platform.id ? 'none' : '1px solid #ddd',
-                  background: selectedPlatform === platform.id ? '#1a1a1a' : '#fff',
-                  color: selectedPlatform === platform.id ? '#fff' : '#666',
-                  fontWeight: '500',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  transition: 'all 0.2s'
-                }}
-              >
+            {[{ id: 'auto', label: 'Auto-detect' }, { id: 'youtube', label: 'YouTube' }, { id: 'facebook', label: 'Facebook' }].map(platform => (
+              <button key={platform.id} onClick={() => setSelectedPlatform(platform.id)} style={{ padding: '8px 20px', borderRadius: '100px', border: selectedPlatform === platform.id ? 'none' : '1px solid #ddd', background: selectedPlatform === platform.id ? '#1a1a1a' : '#fff', color: selectedPlatform === platform.id ? '#fff' : '#666', fontWeight: '500', cursor: 'pointer', fontSize: '13px', transition: 'all 0.2s' }}>
                 {platform.label}
               </button>
             ))}
           </div>
-
           <label>
-            <input
-              type="file"
-              accept=".csv"
-              multiple
-              onChange={handleFileSelect}
-              style={styles.fileInput}
-            />
+            <input type="file" accept=".csv" multiple onChange={handleFileSelect} style={styles.fileInput} />
             <span style={styles.uploadBtn}>Browse Files</span>
           </label>
           {uploadStatus && <div style={styles.statusMessage}>{uploadStatus}</div>}
@@ -807,7 +697,6 @@ export default function App() {
         <div>
           <h2 style={styles.sectionTitle}>Revenue by Client</h2>
           <p style={styles.sectionSubtitle}>Top performers for {selectedMonth}</p>
-          
           <div style={styles.chartsRow}>
             <div>
               <ResponsiveContainer width="100%" height={400}>
@@ -847,7 +736,6 @@ export default function App() {
 
           <h2 style={styles.sectionTitle}>All Clients</h2>
           <p style={styles.sectionSubtitle}>Complete revenue breakdown by platform</p>
-          
           <table style={styles.table}>
             <thead>
               <tr>
@@ -887,7 +775,6 @@ export default function App() {
         <div>
           <h2 style={styles.sectionTitle}>YouTube Channels</h2>
           <p style={styles.sectionSubtitle}>Detailed performance metrics for {selectedMonth}</p>
-
           <div style={styles.sortControls}>
             <span style={{ fontSize: '13px', color: '#999' }}>Sort by</span>
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={styles.select}>
@@ -902,7 +789,6 @@ export default function App() {
               {sortOrder === 'desc' ? '↓ Descending' : '↑ Ascending'}
             </button>
           </div>
-
           <table style={styles.table}>
             <thead>
               <tr>
@@ -941,31 +827,48 @@ export default function App() {
         <div>
           <h2 style={styles.sectionTitle}>Facebook Pages</h2>
           <p style={styles.sectionSubtitle}>Monthly performance for {selectedMonth}</p>
-
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={{ ...styles.th, width: '48px' }}>#</th>
-                <th style={styles.th}>Page</th>
-                <th style={styles.thRight}>Revenue</th>
-                <th style={styles.thRight}>Qualified Views</th>
-                <th style={styles.thRight}>Avg RPM</th>
-                <th style={styles.thRight}>Engagements</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedFacebookData.map((page, i) => (
-                <tr key={i}>
-                  <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
-                  <td style={{ ...styles.td, fontWeight: '500' }}>{page.page}</td>
-                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(page.revenue)}</td>
-                  <td style={styles.tdRight}>{formatNumber(page.views)}</td>
-                  <td style={{ ...styles.tdRight, color: ACCENT_DARK }}>${page.rpm.toFixed(2)}</td>
-                  <td style={styles.tdRight}>{formatNumber(page.engagements)}</td>
+          {isAdmin && facebookData.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
+              <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Facebook data for this month</div>
+              <div style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>Click the button below to auto-fetch from Meta's API</div>
+              <button onClick={fetchFacebookData} disabled={fetchingFB} style={fetchingFB ? styles.fetchBtnDisabled : styles.fetchBtn}>
+                {fetchingFB ? '⏳ Fetching...' : '📘 Fetch Facebook Data'}
+              </button>
+            </div>
+          )}
+          {facebookData.length > 0 && (
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={{ ...styles.th, width: '48px' }}>#</th>
+                  <th style={styles.th}>Page</th>
+                  <th style={styles.thRight}>Revenue</th>
+                  <th style={styles.thRight}>Views</th>
+                  <th style={styles.thRight}>RPM</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {sortedFacebookData.map((page, i) => (
+                  <tr key={i}>
+                    <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
+                    <td style={{ ...styles.td, fontWeight: '500' }}>{page.page}</td>
+                    <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(page.revenue)}</td>
+                    <td style={styles.tdRight}>{formatNumber(page.views)}</td>
+                    <td style={{ ...styles.tdRight, color: ACCENT_DARK }}>${page.rpm.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: '#fafafa' }}>
+                  <td style={styles.td}></td>
+                  <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
+                  <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(facebookData.reduce((s, p) => s + p.revenue, 0))}</td>
+                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(facebookData.reduce((s, p) => s + p.views, 0))}</td>
+                  <td style={styles.tdRight}></td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
         </div>
       )}
 
@@ -974,7 +877,6 @@ export default function App() {
         <div>
           <h2 style={styles.sectionTitle}>Revenue Trends</h2>
           <p style={styles.sectionSubtitle}>Month-over-month performance</p>
-
           {trendData.length > 1 ? (
             <ResponsiveContainer width="100%" height={400}>
               <LineChart data={trendData}>
@@ -988,11 +890,8 @@ export default function App() {
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <div style={{ textAlign: 'center', padding: '64px', color: '#999' }}>
-              Add more months to see trends.
-            </div>
+            <div style={{ textAlign: 'center', padding: '64px', color: '#999' }}>Add more months to see trends.</div>
           )}
-
           {trendData.length > 1 && (
             <table style={{ ...styles.table, marginTop: '48px' }}>
               <thead>
@@ -1018,7 +917,40 @@ export default function App() {
         </div>
       )}
 
-      {/* Add Month Modal - Admin Only */}
+      {/* Meta API Settings Modal */}
+      {showMetaSettings && (
+        <div style={styles.modal} onClick={() => setShowMetaSettings(false)}>
+          <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '20px' }}>Meta API Settings</h3>
+            <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px', lineHeight: '1.5' }}>
+              Enter your system user access token from Meta Business Suite. This is stored locally in your browser only.
+            </p>
+            <label style={{ fontSize: '13px', fontWeight: '600', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' }}>
+              System User Token
+            </label>
+            <textarea
+              value={metaTokenInput}
+              onChange={(e) => setMetaTokenInput(e.target.value)}
+              placeholder="EAARt5DK2EtU..."
+              style={{ ...styles.input, fontFamily: 'monospace', fontSize: '13px', minHeight: '80px', resize: 'vertical' }}
+            />
+            <div style={{ fontSize: '12px', color: '#999', marginBottom: '20px' }}>
+              Token expires: check your Meta Business Suite for expiry date. You'll need to refresh it periodically.
+            </div>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button onClick={saveMetaToken} style={{ ...styles.uploadBtn, flex: 1 }}>Save Token</button>
+              <button onClick={() => setShowMetaSettings(false)} style={{ ...styles.select, flex: 1 }}>Cancel</button>
+            </div>
+            {metaConfig.systemToken && (
+              <div style={{ marginTop: '16px', padding: '12px', background: '#f0fdf4', borderRadius: '8px', fontSize: '13px', color: '#166534' }}>
+                ✓ Token saved ({metaConfig.systemToken.substring(0, 20)}...)
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Add Month Modal */}
       {showAddMonth && isAdmin && (
         <div style={styles.modal} onClick={() => setShowAddMonth(false)}>
           <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
@@ -1067,17 +999,11 @@ export default function App() {
       <div style={{ marginTop: '80px', paddingTop: '32px', borderTop: '1px solid #eee', color: '#999', fontSize: '13px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span>Client Earnings Dashboard</span>
         {isAdmin ? (
-          <button 
-            onClick={() => setIsAdmin(false)} 
-            style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '13px' }}
-          >
+          <button onClick={() => setIsAdmin(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '13px' }}>
             Exit Admin Mode
           </button>
         ) : (
-          <button 
-            onClick={() => setShowPasswordModal(true)} 
-            style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: '13px' }}
-          >
+          <button onClick={() => setShowPasswordModal(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: '13px' }}>
             •
           </button>
         )}
