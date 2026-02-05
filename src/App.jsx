@@ -218,19 +218,22 @@ export default function App() {
   // ============================================================
   // META API: PAGE MANAGER
   // ============================================================
-  const loadAllPages = async () => {
-    if (!metaConfig.systemToken) {
-      setShowMetaSettings(true);
-      return;
+  const loadAllPages = () => {
+    // Build page list from already-fetched data across all months (no API call needed)
+    const pageMap = new Map();
+    Object.values(allData).forEach(monthData => {
+      (monthData.facebook || []).forEach(item => {
+        if (item.pageId && !pageMap.has(item.pageId)) {
+          pageMap.set(item.pageId, { id: item.pageId, name: item.page });
+        }
+      });
+    });
+    const pages = Array.from(pageMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    setAllPages(pages);
+    if (pages.length === 0) {
+      setUploadStatus('No Facebook data fetched yet. Fetch data first, then manage pages.');
+      setTimeout(() => setUploadStatus(''), 3000);
     }
-    setLoadingPages(true);
-    try {
-      const pages = await fetchPages(metaConfig.systemToken);
-      setAllPages(pages.sort((a, b) => a.name.localeCompare(b.name)));
-    } catch (err) {
-      setUploadStatus('❌ Failed to load pages: ' + err.message);
-    }
-    setLoadingPages(false);
   };
 
   const togglePageExclusion = (pageId) => {
@@ -647,7 +650,7 @@ export default function App() {
             <button onClick={() => { setMetaTokenInput(metaConfig.systemToken || ''); setShowMetaSettings(true); }} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
               ⚙️ API Settings
             </button>
-            <button onClick={() => { setShowPageManager(true); if (allPages.length === 0 && metaConfig.systemToken) loadAllPages(); }} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
+            <button onClick={() => { loadAllPages(); setShowPageManager(true); }} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
               📋 Manage Pages {excludedPageIds.length > 0 ? `(${excludedPageIds.length} excluded)` : ''}
             </button>
             <button onClick={exportData} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
@@ -1017,14 +1020,9 @@ export default function App() {
             </p>
 
             {allPages.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '32px 0' }}>
-                <button
-                  onClick={loadAllPages}
-                  disabled={loadingPages}
-                  style={{ ...styles.uploadBtn, minWidth: '200px' }}
-                >
-                  {loadingPages ? '⏳ Loading pages...' : '📋 Load Page List'}
-                </button>
+              <div style={{ textAlign: 'center', padding: '32px 0', color: '#666' }}>
+                <p style={{ fontSize: '16px', marginBottom: '8px' }}>No Facebook data fetched yet.</p>
+                <p style={{ fontSize: '14px' }}>Use "Fetch Facebook Data" first, then come back here to manage which pages are shown.</p>
               </div>
             ) : (
               <>
