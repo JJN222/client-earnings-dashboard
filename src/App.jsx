@@ -56,7 +56,6 @@ const getAdminFromURL = () => {
 // LocalStorage helpers
 const STORAGE_KEY = 'clientEarningsData';
 const META_CONFIG_KEY = 'metaApiConfig';
-const EXCLUDED_PAGES_KEY = 'excludedPageIds';
 
 const loadFromStorage = (key) => {
   try {
@@ -167,13 +166,6 @@ export default function App() {
   const [fetchProgress, setFetchProgress] = useState('');
   const [fetchLog, setFetchLog] = useState([]);
 
-  // Page management state
-  const [showPageManager, setShowPageManager] = useState(false);
-  const [allPages, setAllPages] = useState([]);  // full list from API
-  const [excludedPageIds, setExcludedPageIds] = useState(() => loadFromStorage(EXCLUDED_PAGES_KEY) || []);
-  const [loadingPages, setLoadingPages] = useState(false);
-  const [pageSearchFilter, setPageSearchFilter] = useState('');
-
   useEffect(() => { setIsAdmin(getAdminFromURL()); }, []);
   useEffect(() => { if (isAdmin) saveToStorage(STORAGE_KEY, allData); }, [allData, isAdmin]);
 
@@ -216,45 +208,6 @@ export default function App() {
   };
 
   // ============================================================
-  // META API: PAGE MANAGER
-  // ============================================================
-  const loadAllPages = async () => {
-    if (!metaConfig.systemToken) {
-      setShowMetaSettings(true);
-      return;
-    }
-    setLoadingPages(true);
-    try {
-      const pages = await fetchPages(metaConfig.systemToken);
-      setAllPages(pages.sort((a, b) => a.name.localeCompare(b.name)));
-    } catch (err) {
-      setUploadStatus('❌ Failed to load pages: ' + err.message);
-    }
-    setLoadingPages(false);
-  };
-
-  const togglePageExclusion = (pageId) => {
-    setExcludedPageIds(prev => {
-      const updated = prev.includes(pageId)
-        ? prev.filter(id => id !== pageId)
-        : [...prev, pageId];
-      saveToStorage(EXCLUDED_PAGES_KEY, updated);
-      return updated;
-    });
-  };
-
-  const excludeAllPages = () => {
-    const allIds = allPages.map(p => p.id);
-    setExcludedPageIds(allIds);
-    saveToStorage(EXCLUDED_PAGES_KEY, allIds);
-  };
-
-  const includeAllPages = () => {
-    setExcludedPageIds([]);
-    saveToStorage(EXCLUDED_PAGES_KEY, []);
-  };
-
-  // ============================================================
   // META API: FETCH ALL FACEBOOK DATA
   // ============================================================
   const fetchFacebookData = async () => {
@@ -285,17 +238,13 @@ export default function App() {
       let successCount = 0;
       let skipCount = 0;
 
-      // Filter out excluded pages
-      const activePages = pages.filter(p => !excludedPageIds.includes(p.id));
-      log(`📋 ${activePages.length} active pages (${pages.length - activePages.length} excluded)`);
-
-      for (let i = 0; i < activePages.length; i++) {
-        const page = activePages[i];
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i];
         const pageName = page.name;
         const pageId = page.id;
         const pageToken = page.access_token;
 
-        setFetchProgress(`Fetching ${pageName} (${i + 1}/${activePages.length})...`);
+        setFetchProgress(`Fetching ${pageName} (${i + 1}/${pages.length})...`);
         log(`📊 Fetching ${pageName}...`);
 
         // Check if page has monetization task
@@ -335,7 +284,7 @@ export default function App() {
         }
 
         // Small delay to avoid rate limiting
-        if (i < activePages.length - 1) {
+        if (i < pages.length - 1) {
           await new Promise(r => setTimeout(r, 200));
         }
       }
@@ -643,9 +592,6 @@ export default function App() {
             </button>
             <button onClick={() => { setMetaTokenInput(metaConfig.systemToken || ''); setShowMetaSettings(true); }} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
               ⚙️ API Settings
-            </button>
-            <button onClick={() => { setShowPageManager(true); if (allPages.length === 0 && metaConfig.systemToken) loadAllPages(); }} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
-              📋 Manage Pages {excludedPageIds.length > 0 ? `(${excludedPageIds.length} excluded)` : ''}
             </button>
             <button onClick={exportData} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
               Export Data
@@ -1000,114 +946,6 @@ export default function App() {
                 ✓ Token saved ({metaConfig.systemToken.substring(0, 20)}...)
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Page Manager Modal */}
-      {showPageManager && (
-        <div style={styles.modal} onClick={() => setShowPageManager(false)}>
-          <div style={{ ...styles.modalContent, maxWidth: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 8px 0', fontSize: '20px' }}>Manage Facebook Pages</h3>
-            <p style={{ color: '#666', fontSize: '14px', marginBottom: '16px', lineHeight: '1.5' }}>
-              Toggle pages on/off. Only enabled pages will be fetched. Changes are saved automatically.
-            </p>
-
-            {allPages.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '32px 0' }}>
-                <button
-                  onClick={loadAllPages}
-                  disabled={loadingPages}
-                  style={{ ...styles.uploadBtn, minWidth: '200px' }}
-                >
-                  {loadingPages ? '⏳ Loading pages...' : '📋 Load Page List'}
-                </button>
-              </div>
-            ) : (
-              <>
-                {/* Search + bulk actions */}
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', alignItems: 'center' }}>
-                  <input
-                    type="text"
-                    placeholder="Search pages..."
-                    value={pageSearchFilter}
-                    onChange={(e) => setPageSearchFilter(e.target.value)}
-                    style={{ ...styles.input, marginBottom: 0, flex: 1 }}
-                  />
-                  <button onClick={includeAllPages} style={{ ...styles.select, whiteSpace: 'nowrap', fontSize: '12px', padding: '8px 12px' }}>
-                    Enable All
-                  </button>
-                  <button onClick={excludeAllPages} style={{ ...styles.select, whiteSpace: 'nowrap', fontSize: '12px', padding: '8px 12px' }}>
-                    Disable All
-                  </button>
-                </div>
-
-                {/* Stats bar */}
-                <div style={{ fontSize: '13px', color: '#666', marginBottom: '12px', padding: '8px 12px', background: '#f8f9fa', borderRadius: '8px' }}>
-                  {allPages.length - excludedPageIds.length} of {allPages.length} pages enabled
-                </div>
-
-                {/* Page list */}
-                <div style={{ overflowY: 'auto', flex: 1, maxHeight: '400px', border: '1px solid #eee', borderRadius: '8px' }}>
-                  {allPages
-                    .filter(p => !pageSearchFilter || p.name.toLowerCase().includes(pageSearchFilter.toLowerCase()))
-                    .map((page) => {
-                      const isExcluded = excludedPageIds.includes(page.id);
-                      return (
-                        <div
-                          key={page.id}
-                          onClick={() => togglePageExclusion(page.id)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            padding: '12px 16px',
-                            borderBottom: '1px solid #f0f0f0',
-                            cursor: 'pointer',
-                            background: isExcluded ? '#fafafa' : '#fff',
-                            transition: 'background 0.15s',
-                          }}
-                          onMouseEnter={e => e.currentTarget.style.background = isExcluded ? '#f5f5f5' : '#f0f7ff'}
-                          onMouseLeave={e => e.currentTarget.style.background = isExcluded ? '#fafafa' : '#fff'}
-                        >
-                          <div style={{
-                            width: '20px',
-                            height: '20px',
-                            borderRadius: '4px',
-                            border: isExcluded ? '2px solid #ccc' : '2px solid #3b82f6',
-                            background: isExcluded ? '#fff' : '#3b82f6',
-                            marginRight: '12px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                            transition: 'all 0.15s',
-                          }}>
-                            {!isExcluded && <span style={{ color: '#fff', fontSize: '14px', fontWeight: 'bold' }}>✓</span>}
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{
-                              fontSize: '14px',
-                              fontWeight: '500',
-                              color: isExcluded ? '#999' : '#1a1a2e',
-                              textDecoration: isExcluded ? 'line-through' : 'none',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}>
-                              {page.name}
-                            </div>
-                            <div style={{ fontSize: '11px', color: '#aaa' }}>ID: {page.id}</div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              </>
-            )}
-
-            <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
-              <button onClick={() => setShowPageManager(false)} style={{ ...styles.uploadBtn, flex: 1 }}>Done</button>
-            </div>
           </div>
         </div>
       )}
