@@ -201,7 +201,8 @@ export default function App() {
   // Page management state
   const [showPageManager, setShowPageManager] = useState(false);
   const [allPages, setAllPages] = useState([]);  // full list from API
-  const [excludedPageIds, setExcludedPageIds] = useState(() => loadFromStorage(EXCLUDED_PAGES_KEY) || []);
+  // Per-month excluded pages: { 'January 2026': ['pageId1', 'pageId2'], ... }
+  const [excludedPageIds, setExcludedPageIds] = useState(() => loadFromStorage(EXCLUDED_PAGES_KEY) || {});
   const [loadingPages, setLoadingPages] = useState(false);
   const [pageSearchFilter, setPageSearchFilter] = useState('');
 
@@ -222,7 +223,15 @@ export default function App() {
           setSelectedMonth(Object.keys(dbData).sort().pop() || 'January 2026');
         }
         if (dbMeta) setMetaConfig(dbMeta);
-        if (dbExcluded) setExcludedPageIds(dbExcluded);
+        if (dbExcluded) {
+          // Handle migration from old array format to new per-month object format
+          if (Array.isArray(dbExcluded)) {
+            // Old format was a flat array - migrate to empty object (start fresh per-month)
+            setExcludedPageIds({});
+          } else {
+            setExcludedPageIds(dbExcluded);
+          }
+        }
       } catch (e) {
         console.error('Failed to load from database:', e);
       }
@@ -298,25 +307,36 @@ export default function App() {
     }
   };
 
+  // Get excluded pages for current month
+  const currentExcluded = excludedPageIds[selectedMonth] || [];
+
   const togglePageExclusion = (pageId) => {
     setExcludedPageIds(prev => {
-      const updated = prev.includes(pageId)
-        ? prev.filter(id => id !== pageId)
-        : [...prev, pageId];
-      saveToDB(EXCLUDED_PAGES_KEY, updated);
-      return updated;
+      const monthExcluded = prev[selectedMonth] || [];
+      const updated = monthExcluded.includes(pageId)
+        ? monthExcluded.filter(id => id !== pageId)
+        : [...monthExcluded, pageId];
+      const newState = { ...prev, [selectedMonth]: updated };
+      saveToDB(EXCLUDED_PAGES_KEY, newState);
+      return newState;
     });
   };
 
   const excludeAllPages = () => {
     const allIds = allPages.map(p => p.id);
-    setExcludedPageIds(allIds);
-    saveToDB(EXCLUDED_PAGES_KEY, allIds);
+    setExcludedPageIds(prev => {
+      const newState = { ...prev, [selectedMonth]: allIds };
+      saveToDB(EXCLUDED_PAGES_KEY, newState);
+      return newState;
+    });
   };
 
   const includeAllPages = () => {
-    setExcludedPageIds([]);
-    saveToDB(EXCLUDED_PAGES_KEY, []);
+    setExcludedPageIds(prev => {
+      const newState = { ...prev, [selectedMonth]: [] };
+      saveToDB(EXCLUDED_PAGES_KEY, newState);
+      return newState;
+    });
   };
 
   // ============================================================
@@ -350,8 +370,8 @@ export default function App() {
       let successCount = 0;
       let skipCount = 0;
 
-      // Filter out excluded pages
-      const activePages = pages.filter(p => !excludedPageIds.includes(p.id));
+      // Filter out excluded pages for this month
+      const activePages = pages.filter(p => !currentExcluded.includes(p.id));
       log(`📋 ${activePages.length} active pages (${pages.length - activePages.length} excluded)`);
 
       for (let i = 0; i < activePages.length; i++) {
@@ -440,8 +460,15 @@ export default function App() {
   // ============================================================
   const youtubeData = allData[selectedMonth]?.youtube || [];
   const facebookDataRaw = allData[selectedMonth]?.facebook || [];
-  const facebookData = facebookDataRaw.filter(d => !excludedPageIds.includes(d.pageId));
-  const months = Object.keys(allData).sort();
+  const facebookData = facebookDataRaw.filter(d => !currentExcluded.includes(d.pageId));
+  const months = Object.keys(allData).sort((a, b) => {
+    const parseMonth = (str) => {
+      const [monthName, year] = str.split(' ');
+      const monthIndex = ['January','February','March','April','May','June','July','August','September','October','November','December'].indexOf(monthName);
+      return new Date(parseInt(year), monthIndex);
+    };
+    return parseMonth(a) - parseMonth(b);
+  });
 
   const parseYoutubeCSV = (text) => {
     const lines = text.trim().split('\n');
@@ -554,10 +581,24 @@ export default function App() {
 
   const addNewMonth = () => {
     if (newMonthName && !allData[newMonthName]) {
+      // Copy exclusions from the most recent previous month
+      const sortedMonths = Object.keys(allData).sort();
+      const lastMonth = sortedMonths[sortedMonths.length - 1];
+      const previousExclusions = excludedPageIds[lastMonth] || [];
+      
       setAllData(prev => ({ ...prev, [newMonthName]: { youtube: [], facebook: [] } }));
       setSelectedMonth(newMonthName);
       setNewMonthName('');
       setShowAddMonth(false);
+      
+      // Set the new month's exclusions to match the previous month
+      if (previousExclusions.length > 0) {
+        setExcludedPageIds(prev => {
+          const newState = { ...prev, [newMonthName]: [...previousExclusions] };
+          saveToDB(EXCLUDED_PAGES_KEY, newState);
+          return newState;
+        });
+      }
     }
   };
 
@@ -599,7 +640,8 @@ export default function App() {
   const trendData = useMemo(() => {
     return months.map(month => {
       const yt = allData[month]?.youtube || [];
-      const fb = (allData[month]?.facebook || []).filter(d => !excludedPageIds.includes(d.pageId));
+      const monthExcluded = excludedPageIds[month] || [];
+      const fb = (allData[month]?.facebook || []).filter(d => !monthExcluded.includes(d.pageId));
       return {
         month: month.replace(' 20', " '"),
         youtube: yt.reduce((sum, d) => sum + d.revenue, 0),
@@ -713,7 +755,7 @@ export default function App() {
               ⚙️ API Settings
             </button>
             <button onClick={() => { loadAllPages(); setShowPageManager(true); }} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
-              📋 Manage Pages {excludedPageIds.length > 0 ? `(${excludedPageIds.length} excluded)` : ''}
+              📋 Manage Pages {currentExcluded.length > 0 ? `(${currentExcluded.length} excluded)` : ''}
             </button>
             <button onClick={exportData} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
               Export Data
@@ -1107,7 +1149,7 @@ export default function App() {
 
                 {/* Stats bar */}
                 <div style={{ fontSize: '13px', color: '#666', marginBottom: '12px', padding: '8px 12px', background: '#f8f9fa', borderRadius: '8px' }}>
-                  {allPages.length - excludedPageIds.length} of {allPages.length} pages enabled
+                  {allPages.length - currentExcluded.length} of {allPages.length} pages enabled for {selectedMonth}
                 </div>
 
                 {/* Page list */}
@@ -1115,7 +1157,7 @@ export default function App() {
                   {allPages
                     .filter(p => !pageSearchFilter || p.name.toLowerCase().includes(pageSearchFilter.toLowerCase()))
                     .map((page) => {
-                      const isExcluded = excludedPageIds.includes(page.id);
+                      const isExcluded = currentExcluded.includes(page.id);
                       return (
                         <div
                           key={page.id}
