@@ -289,22 +289,30 @@ export default function App() {
   // ============================================================
   // META API: PAGE MANAGER
   // ============================================================
-  const loadAllPages = () => {
-    // Build page list from already-fetched data across all months (no API call needed)
-    const pageMap = new Map();
-    Object.values(allData).forEach(monthData => {
-      (monthData.facebook || []).forEach(item => {
-        if (item.pageId && !pageMap.has(item.pageId)) {
-          pageMap.set(item.pageId, { id: item.pageId, name: item.page });
-        }
-      });
-    });
-    const pages = Array.from(pageMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-    setAllPages(pages);
-    if (pages.length === 0) {
-      setUploadStatus('No Facebook data fetched yet. Fetch data first, then manage pages.');
+  const loadAllPages = async () => {
+    if (!metaConfig.systemToken) {
+      setUploadStatus('Please set your Meta API token first in API Settings.');
       setTimeout(() => setUploadStatus(''), 3000);
+      setShowMetaSettings(true);
+      return;
     }
+    
+    setLoadingPages(true);
+    try {
+      // Fetch all pages from Meta API
+      const pages = await fetchPages(metaConfig.systemToken);
+      const formattedPages = pages.map(p => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name));
+      setAllPages(formattedPages);
+      
+      if (formattedPages.length === 0) {
+        setUploadStatus('No pages found in your Meta Business account.');
+        setTimeout(() => setUploadStatus(''), 3000);
+      }
+    } catch (err) {
+      setUploadStatus(`Error loading pages: ${err.message}`);
+      setTimeout(() => setUploadStatus(''), 5000);
+    }
+    setLoadingPages(false);
   };
 
   // Get excluded pages for current month
@@ -1123,10 +1131,14 @@ export default function App() {
               Toggle pages on/off. Only enabled pages will be fetched. Changes are saved automatically.
             </p>
 
-            {allPages.length === 0 ? (
+            {loadingPages ? (
               <div style={{ textAlign: 'center', padding: '32px 0', color: '#666' }}>
-                <p style={{ fontSize: '16px', marginBottom: '8px' }}>No Facebook data fetched yet.</p>
-                <p style={{ fontSize: '14px' }}>Use "Fetch Facebook Data" first, then come back here to manage which pages are shown.</p>
+                <p style={{ fontSize: '16px', marginBottom: '8px' }}>⏳ Loading pages from Meta API...</p>
+              </div>
+            ) : allPages.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '32px 0', color: '#666' }}>
+                <p style={{ fontSize: '16px', marginBottom: '8px' }}>No pages found.</p>
+                <p style={{ fontSize: '14px' }}>Make sure your Meta API token is set in API Settings.</p>
               </div>
             ) : (
               <>
