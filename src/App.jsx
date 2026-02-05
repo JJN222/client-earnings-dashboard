@@ -53,7 +53,7 @@ const getAdminFromURL = () => {
   return false;
 };
 
-// LocalStorage helpers
+// Storage helpers - uses API (database) with localStorage as cache
 const STORAGE_KEY = 'clientEarningsData';
 const META_CONFIG_KEY = 'metaApiConfig';
 const EXCLUDED_PAGES_KEY = 'excludedPageIds';
@@ -63,7 +63,7 @@ const loadFromStorage = (key) => {
     const saved = localStorage.getItem(key);
     if (saved) return JSON.parse(saved);
   } catch (e) {
-    console.error('Failed to load from storage:', e);
+    console.error('Failed to load from localStorage:', e);
   }
   return null;
 };
@@ -72,7 +72,38 @@ const saveToStorage = (key, data) => {
   try {
     localStorage.setItem(key, JSON.stringify(data));
   } catch (e) {
-    console.error('Failed to save to storage:', e);
+    console.error('Failed to save to localStorage:', e);
+  }
+};
+
+// Database API helpers
+const loadFromDB = async (key) => {
+  try {
+    const res = await fetch(`/api/data/${key}`);
+    const json = await res.json();
+    if (json.value !== null) {
+      // Also cache in localStorage
+      saveToStorage(key, json.value);
+      return json.value;
+    }
+  } catch (e) {
+    console.error('Failed to load from DB:', e);
+  }
+  return null;
+};
+
+const saveToDB = async (key, data) => {
+  try {
+    // Save to localStorage cache immediately
+    saveToStorage(key, data);
+    // Then save to database
+    await fetch(`/api/data/${key}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: data })
+    });
+  } catch (e) {
+    console.error('Failed to save to DB:', e);
   }
 };
 
@@ -175,7 +206,37 @@ export default function App() {
   const [pageSearchFilter, setPageSearchFilter] = useState('');
 
   useEffect(() => { setIsAdmin(getAdminFromURL()); }, []);
-  useEffect(() => { if (isAdmin) saveToStorage(STORAGE_KEY, allData); }, [allData, isAdmin]);
+  
+  // Load data from database on mount (for all visitors)
+  const [dbLoaded, setDbLoaded] = useState(false);
+  useEffect(() => {
+    async function loadFromDatabase() {
+      try {
+        const [dbData, dbMeta, dbExcluded] = await Promise.all([
+          loadFromDB(STORAGE_KEY),
+          loadFromDB(META_CONFIG_KEY),
+          loadFromDB(EXCLUDED_PAGES_KEY)
+        ]);
+        if (dbData) {
+          setAllData(dbData);
+          setSelectedMonth(Object.keys(dbData).sort().pop() || 'January 2026');
+        }
+        if (dbMeta) setMetaConfig(dbMeta);
+        if (dbExcluded) setExcludedPageIds(dbExcluded);
+      } catch (e) {
+        console.error('Failed to load from database:', e);
+      }
+      setDbLoaded(true);
+    }
+    loadFromDatabase();
+  }, []);
+
+  // Save to database whenever admin changes data
+  useEffect(() => {
+    if (isAdmin && dbLoaded) {
+      saveToDB(STORAGE_KEY, allData);
+    }
+  }, [allData, isAdmin, dbLoaded]);
 
   const handlePasswordSubmit = () => {
     if (passwordInput === 'shorthand2026') {
@@ -200,6 +261,7 @@ export default function App() {
       setAllData(INITIAL_DATA);
       setSelectedMonth(Object.keys(INITIAL_DATA)[0]);
       localStorage.removeItem(STORAGE_KEY);
+      fetch(`/api/data/${STORAGE_KEY}`, { method: 'DELETE' }).catch(() => {});
     }
   };
 
@@ -209,7 +271,7 @@ export default function App() {
   const saveMetaToken = () => {
     const config = { systemToken: metaTokenInput.trim() };
     setMetaConfig(config);
-    saveToStorage(META_CONFIG_KEY, config);
+    saveToDB(META_CONFIG_KEY, config);
     setShowMetaSettings(false);
     setUploadStatus('✓ Meta API token saved');
     setTimeout(() => setUploadStatus(''), 3000);
@@ -241,7 +303,7 @@ export default function App() {
       const updated = prev.includes(pageId)
         ? prev.filter(id => id !== pageId)
         : [...prev, pageId];
-      saveToStorage(EXCLUDED_PAGES_KEY, updated);
+      saveToDB(EXCLUDED_PAGES_KEY, updated);
       return updated;
     });
   };
@@ -249,12 +311,12 @@ export default function App() {
   const excludeAllPages = () => {
     const allIds = allPages.map(p => p.id);
     setExcludedPageIds(allIds);
-    saveToStorage(EXCLUDED_PAGES_KEY, allIds);
+    saveToDB(EXCLUDED_PAGES_KEY, allIds);
   };
 
   const includeAllPages = () => {
     setExcludedPageIds([]);
-    saveToStorage(EXCLUDED_PAGES_KEY, []);
+    saveToDB(EXCLUDED_PAGES_KEY, []);
   };
 
   // ============================================================
