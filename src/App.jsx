@@ -143,8 +143,11 @@ const fetchPages = async (systemToken) => {
 };
 
 // Fetch insights for a single page
-const fetchPageInsights = async (pageId, pageToken, metric, since, until) => {
-  const url = `https://graph.facebook.com/${API_VERSION}/${pageId}/insights?metric=${metric}&period=day&since=${since}&until=${until}&access_token=${pageToken}`;
+const fetchPageInsights = async (pageId, pageToken, metric, since, until, breakdown = null) => {
+  let url = `https://graph.facebook.com/${API_VERSION}/${pageId}/insights?metric=${metric}&period=day&since=${since}&until=${until}&access_token=${pageToken}`;
+  if (breakdown) {
+    url += `&breakdown=${breakdown}`;
+  }
   const response = await fetch(url);
   const data = await response.json();
   if (data.error) {
@@ -155,6 +158,7 @@ const fetchPageInsights = async (pageId, pageToken, metric, since, until) => {
 };
 
 // Aggregate daily values into a monthly total
+// Handles both simple values and breakdown values
 const sumDailyValues = (values, isRevenue = false) => {
   if (!values || values.length === 0) return 0;
   return values.reduce((sum, day) => {
@@ -165,6 +169,33 @@ const sumDailyValues = (values, isRevenue = false) => {
     }
     return sum + (day.value || 0);
   }, 0);
+};
+
+// Sum revenue from breakdown data by tool type
+const sumBreakdownRevenue = (values) => {
+  if (!values || values.length === 0) return { total: 0, ads: 0, stars: 0, subs: 0 };
+  
+  let ads = 0, stars = 0, subs = 0;
+  
+  values.forEach(day => {
+    const val = day.value || {};
+    // The breakdown keys might be: in_stream_ads, stars, fan_subscriptions, etc.
+    Object.entries(val).forEach(([key, amount]) => {
+      const micro = amount?.microAmount || 0;
+      const usd = micro / MICRO_DIVISOR;
+      
+      if (key.includes('star')) {
+        stars += usd;
+      } else if (key.includes('subscription') || key.includes('fan_sub')) {
+        subs += usd;
+      } else {
+        // Everything else is ads (in_stream, reels, etc.)
+        ads += usd;
+      }
+    });
+  });
+  
+  return { total: ads + stars + subs, ads, stars, subs };
 };
 
 // ============================================================
@@ -433,11 +464,17 @@ export default function App() {
         setFetchProgress(`Fetching ${pageName} (${i + 1}/${activePages.length})...`);
         log(`📊 Fetching ${pageName}...`);
 
-        // Fetch revenue
+        // Fetch revenue with breakdown by monetization tool (ads, stars, subscriptions)
         const revenueData = await fetchPageInsights(
+          pageId, pageToken, 'monetization_approximate_earnings',
+          dateRange.since, dateRange.until, 'monetization_tool'
+        );
+
+        // Fallback to content_monetization_earnings if breakdown doesn't work
+        const fallbackData = !revenueData ? await fetchPageInsights(
           pageId, pageToken, 'content_monetization_earnings',
           dateRange.since, dateRange.until
-        );
+        ) : null;
 
         // Fetch views
         const viewsData = await fetchPageInsights(
@@ -445,7 +482,20 @@ export default function App() {
           dateRange.since, dateRange.until
         );
 
-        const revenue = sumDailyValues(revenueData, true);
+        // Parse revenue - try breakdown first, then fallback
+        let revenue = 0, adsRevenue = 0, starsRevenue = 0, subsRevenue = 0;
+        
+        if (revenueData) {
+          const breakdown = sumBreakdownRevenue(revenueData);
+          revenue = breakdown.total;
+          adsRevenue = breakdown.ads;
+          starsRevenue = breakdown.stars;
+          subsRevenue = breakdown.subs;
+        } else if (fallbackData) {
+          revenue = sumDailyValues(fallbackData, true);
+          adsRevenue = revenue; // All goes to ads if no breakdown
+        }
+        
         const views = sumDailyValues(viewsData, false);
 
         // Only include pages that have some data
@@ -455,11 +505,17 @@ export default function App() {
             page: pageName,
             pageId: pageId,
             revenue: Math.round(revenue * 100) / 100,
+            adsRevenue: Math.round(adsRevenue * 100) / 100,
+            starsRevenue: Math.round(starsRevenue * 100) / 100,
+            subsRevenue: Math.round(subsRevenue * 100) / 100,
             views: views,
             rpm: Math.round(rpm * 100) / 100,
             engagements: 0,
           });
-          log(`  ✓ ${pageName}: $${revenue.toFixed(2)} revenue, ${views.toLocaleString()} views`);
+          const breakdownStr = starsRevenue > 0 || subsRevenue > 0 
+            ? ` (ads: $${adsRevenue.toFixed(2)}, stars: $${starsRevenue.toFixed(2)}, subs: $${subsRevenue.toFixed(2)})`
+            : '';
+          log(`  ✓ ${pageName}: $${revenue.toFixed(2)} revenue${breakdownStr}, ${views.toLocaleString()} views`);
           successCount++;
         } else {
           log(`  ⊘ ${pageName}: no revenue/views data`);
@@ -1142,7 +1198,10 @@ export default function App() {
                 <tr>
                   <th style={{ ...styles.th, width: '48px' }}>#</th>
                   <th style={styles.th}>Page</th>
-                  <th style={styles.thRight}>Revenue</th>
+                  <th style={styles.thRight}>Ads</th>
+                  <th style={styles.thRight}>Stars</th>
+                  <th style={styles.thRight}>Subs</th>
+                  <th style={styles.thRight}>Total</th>
                   <th style={styles.thRight}>Views</th>
                   <th style={styles.thRight}>RPM</th>
                 </tr>
@@ -1152,6 +1211,9 @@ export default function App() {
                   <tr key={i}>
                     <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
                     <td style={{ ...styles.td, fontWeight: '500' }}>{page.page}</td>
+                    <td style={{ ...styles.tdRight, color: (page.adsRevenue || 0) > 0 ? '#1a1a1a' : '#ccc' }}>{formatCurrency(page.adsRevenue || 0)}</td>
+                    <td style={{ ...styles.tdRight, color: (page.starsRevenue || 0) > 0 ? '#1a1a1a' : '#ccc' }}>{formatCurrency(page.starsRevenue || 0)}</td>
+                    <td style={{ ...styles.tdRight, color: (page.subsRevenue || 0) > 0 ? '#1a1a1a' : '#ccc' }}>{formatCurrency(page.subsRevenue || 0)}</td>
                     <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(page.revenue)}</td>
                     <td style={styles.tdRight}>{formatNumber(page.views)}</td>
                     <td style={{ ...styles.tdRight, color: ACCENT_DARK }}>${page.rpm.toFixed(2)}</td>
@@ -1162,6 +1224,9 @@ export default function App() {
                 <tr style={{ background: '#fafafa' }}>
                   <td style={styles.td}></td>
                   <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
+                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(facebookData.reduce((s, p) => s + (p.adsRevenue || 0), 0))}</td>
+                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(facebookData.reduce((s, p) => s + (p.starsRevenue || 0), 0))}</td>
+                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(facebookData.reduce((s, p) => s + (p.subsRevenue || 0), 0))}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(facebookData.reduce((s, p) => s + p.revenue, 0))}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(facebookData.reduce((s, p) => s + p.views, 0))}</td>
                   <td style={styles.tdRight}></td>
