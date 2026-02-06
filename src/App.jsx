@@ -433,21 +433,9 @@ export default function App() {
         setFetchProgress(`Fetching ${pageName} (${i + 1}/${activePages.length})...`);
         log(`📊 Fetching ${pageName}...`);
 
-        // Fetch ad revenue (videos + Reels)
-        const adsData = await fetchPageInsights(
+        // Fetch revenue
+        const revenueData = await fetchPageInsights(
           pageId, pageToken, 'content_monetization_earnings',
-          dateRange.since, dateRange.until
-        );
-
-        // Fetch stars revenue
-        const starsData = await fetchPageInsights(
-          pageId, pageToken, 'stars_earnings',
-          dateRange.since, dateRange.until
-        );
-
-        // Fetch subscriptions revenue
-        const subsData = await fetchPageInsights(
-          pageId, pageToken, 'subscriptions_earnings',
           dateRange.since, dateRange.until
         );
 
@@ -457,27 +445,21 @@ export default function App() {
           dateRange.since, dateRange.until
         );
 
-        const adsRevenue = sumDailyValues(adsData, true);
-        const starsRevenue = sumDailyValues(starsData, true);
-        const subsRevenue = sumDailyValues(subsData, true);
+        const revenue = sumDailyValues(revenueData, true);
         const views = sumDailyValues(viewsData, false);
-        const totalRevenue = adsRevenue + starsRevenue + subsRevenue;
 
         // Only include pages that have some data
-        if (totalRevenue > 0 || views > 0) {
-          const rpm = views > 0 ? (totalRevenue / views) * 1000 : 0;
+        if (revenue > 0 || views > 0) {
+          const rpm = views > 0 ? (revenue / views) * 1000 : 0;
           fbResults.push({
             page: pageName,
             pageId: pageId,
-            revenue: Math.round(totalRevenue * 100) / 100,
-            adsRevenue: Math.round(adsRevenue * 100) / 100,
-            starsRevenue: Math.round(starsRevenue * 100) / 100,
-            subsRevenue: Math.round(subsRevenue * 100) / 100,
+            revenue: Math.round(revenue * 100) / 100,
             views: views,
             rpm: Math.round(rpm * 100) / 100,
             engagements: 0,
           });
-          log(`  ✓ ${pageName}: $${totalRevenue.toFixed(2)} total (ads: $${adsRevenue.toFixed(2)}, stars: $${starsRevenue.toFixed(2)}, subs: $${subsRevenue.toFixed(2)})`);
+          log(`  ✓ ${pageName}: $${revenue.toFixed(2)} revenue, ${views.toLocaleString()} views`);
           successCount++;
         } else {
           log(`  ⊘ ${pageName}: no revenue/views data`);
@@ -1160,10 +1142,7 @@ export default function App() {
                 <tr>
                   <th style={{ ...styles.th, width: '48px' }}>#</th>
                   <th style={styles.th}>Page</th>
-                  <th style={styles.thRight}>Ads</th>
-                  <th style={styles.thRight}>Stars</th>
-                  <th style={styles.thRight}>Subs</th>
-                  <th style={styles.thRight}>Total</th>
+                  <th style={styles.thRight}>Revenue</th>
                   <th style={styles.thRight}>Views</th>
                   <th style={styles.thRight}>RPM</th>
                 </tr>
@@ -1173,9 +1152,6 @@ export default function App() {
                   <tr key={i}>
                     <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
                     <td style={{ ...styles.td, fontWeight: '500' }}>{page.page}</td>
-                    <td style={{ ...styles.tdRight, color: (page.adsRevenue || 0) > 0 ? '#1a1a1a' : '#ccc' }}>{formatCurrency(page.adsRevenue || 0)}</td>
-                    <td style={{ ...styles.tdRight, color: (page.starsRevenue || 0) > 0 ? '#1a1a1a' : '#ccc' }}>{formatCurrency(page.starsRevenue || 0)}</td>
-                    <td style={{ ...styles.tdRight, color: (page.subsRevenue || 0) > 0 ? '#1a1a1a' : '#ccc' }}>{formatCurrency(page.subsRevenue || 0)}</td>
                     <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(page.revenue)}</td>
                     <td style={styles.tdRight}>{formatNumber(page.views)}</td>
                     <td style={{ ...styles.tdRight, color: ACCENT_DARK }}>${page.rpm.toFixed(2)}</td>
@@ -1186,9 +1162,6 @@ export default function App() {
                 <tr style={{ background: '#fafafa' }}>
                   <td style={styles.td}></td>
                   <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
-                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(facebookData.reduce((s, p) => s + (p.adsRevenue || 0), 0))}</td>
-                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(facebookData.reduce((s, p) => s + (p.starsRevenue || 0), 0))}</td>
-                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(facebookData.reduce((s, p) => s + (p.subsRevenue || 0), 0))}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(facebookData.reduce((s, p) => s + p.revenue, 0))}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(facebookData.reduce((s, p) => s + p.views, 0))}</td>
                   <td style={styles.tdRight}></td>
