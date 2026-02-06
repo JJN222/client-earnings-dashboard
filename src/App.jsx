@@ -171,6 +171,11 @@ const sumDailyValues = (values, isRevenue = false) => {
 // MAIN COMPONENT
 // ============================================================
 export default function App() {
+  // Login state
+  const [isLoggedIn, setIsLoggedIn] = useState(() => sessionStorage.getItem('shs_logged_in') === 'true');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+
   const [allData, setAllData] = useState(() => loadFromStorage(STORAGE_KEY) || INITIAL_DATA);
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const data = loadFromStorage(STORAGE_KEY) || INITIAL_DATA;
@@ -185,7 +190,7 @@ export default function App() {
   const [newMonthName, setNewMonthName] = useState('');
   const [showAddMonth, setShowAddMonth] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState('auto');
-  const [isAdmin, setIsAdmin] = useState(getAdminFromURL());
+  const [isAdmin, setIsAdmin] = useState(() => sessionStorage.getItem('shs_admin') === 'true' || getAdminFromURL());
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
@@ -206,7 +211,44 @@ export default function App() {
   const [loadingPages, setLoadingPages] = useState(false);
   const [pageSearchFilter, setPageSearchFilter] = useState('');
 
-  useEffect(() => { setIsAdmin(getAdminFromURL()); }, []);
+  // Check URL params for admin access on mount
+  useEffect(() => {
+    if (getAdminFromURL()) {
+      setIsAdmin(true);
+      setIsLoggedIn(true);
+      sessionStorage.setItem('shs_logged_in', 'true');
+      sessionStorage.setItem('shs_admin', 'true');
+    }
+  }, []);
+
+  // Handle login
+  const handleLogin = () => {
+    if (loginPassword === 'shorthand2026') {
+      // Admin login
+      setIsLoggedIn(true);
+      setIsAdmin(true);
+      sessionStorage.setItem('shs_logged_in', 'true');
+      sessionStorage.setItem('shs_admin', 'true');
+      setLoginPassword('');
+      setLoginError('');
+    } else if (loginPassword === 'shsrevenuetracker') {
+      // Viewer login
+      setIsLoggedIn(true);
+      sessionStorage.setItem('shs_logged_in', 'true');
+      setLoginPassword('');
+      setLoginError('');
+    } else {
+      setLoginError('Incorrect password');
+    }
+  };
+
+  // Handle logout
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setIsAdmin(false);
+    sessionStorage.removeItem('shs_logged_in');
+    sessionStorage.removeItem('shs_admin');
+  };
   
   // Load data from database on mount (for all visitors)
   const [dbLoaded, setDbLoaded] = useState(false);
@@ -394,9 +436,21 @@ export default function App() {
         // Check if page has monetization task
         const hasMon = page.tasks?.includes('VIEW_MONETIZATION_INSIGHTS');
 
-        // Fetch revenue
+        // Fetch ad revenue
         const revenueData = await fetchPageInsights(
           pageId, pageToken, 'content_monetization_earnings',
+          dateRange.since, dateRange.until
+        );
+
+        // Fetch stars revenue
+        const starsData = await fetchPageInsights(
+          pageId, pageToken, 'creator_stars_earnings',
+          dateRange.since, dateRange.until
+        );
+
+        // Fetch subscriptions revenue
+        const subsData = await fetchPageInsights(
+          pageId, pageToken, 'fan_subscriptions_earnings',
           dateRange.since, dateRange.until
         );
 
@@ -406,21 +460,27 @@ export default function App() {
           dateRange.since, dateRange.until
         );
 
-        const revenue = sumDailyValues(revenueData, true);
+        const adRevenue = sumDailyValues(revenueData, true);
+        const starsRevenue = sumDailyValues(starsData, true);
+        const subsRevenue = sumDailyValues(subsData, true);
         const views = sumDailyValues(viewsData, false);
+        const totalRevenue = adRevenue + starsRevenue + subsRevenue;
 
         // Only include pages that have some data
-        if (revenue > 0 || views > 0) {
-          const rpm = views > 0 ? (revenue / views) * 1000 : 0;
+        if (totalRevenue > 0 || views > 0) {
+          const rpm = views > 0 ? (totalRevenue / views) * 1000 : 0;
           fbResults.push({
             page: pageName,
             pageId: pageId,
-            revenue: Math.round(revenue * 100) / 100,
+            revenue: Math.round(totalRevenue * 100) / 100,
+            adRevenue: Math.round(adRevenue * 100) / 100,
+            starsRevenue: Math.round(starsRevenue * 100) / 100,
+            subsRevenue: Math.round(subsRevenue * 100) / 100,
             views: views,
             rpm: Math.round(rpm * 100) / 100,
             engagements: 0,
           });
-          log(`  ✓ ${pageName}: $${revenue.toFixed(2)} revenue, ${views.toLocaleString()} views`);
+          log(`  ✓ ${pageName}: $${totalRevenue.toFixed(2)} total (ads: $${adRevenue.toFixed(2)}, stars: $${starsRevenue.toFixed(2)}, subs: $${subsRevenue.toFixed(2)})`);
           successCount++;
         } else {
           log(`  ⊘ ${pageName}: no revenue/views data`);
@@ -674,10 +734,7 @@ export default function App() {
   ];
 
   const formatCurrency = (val) => {
-    if (val >= 1000000000) return `$${(val / 1000000000).toFixed(1)}B`;
-    if (val >= 1000000) return `$${(val / 1000000).toFixed(2)}M`;
-    if (val >= 1000) return `$${(val / 1000).toFixed(1)}K`;
-    return `$${val.toFixed(2)}`;
+    return `$${Math.round(val).toLocaleString()}`;
   };
 
   const formatNumber = (val) => {
@@ -692,7 +749,7 @@ export default function App() {
   // ============================================================
   const styles = {
     container: { minHeight: '100vh', background: '#FFFFFF', fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", color: '#1a1a1a', padding: '48px 64px', maxWidth: '1400px', margin: '0 auto' },
-    header: { marginBottom: '48px' },
+    header: { marginBottom: '48px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
     title: { fontSize: '48px', fontWeight: '700', margin: 0, letterSpacing: '-1px', display: 'flex', alignItems: 'baseline', gap: '8px' },
     dot: { width: '12px', height: '12px', background: ACCENT, borderRadius: '50%', display: 'inline-block' },
     subtitle: { color: '#666', marginTop: '8px', fontSize: '16px' },
@@ -710,9 +767,8 @@ export default function App() {
     statusMessage: { marginTop: '12px', fontSize: '14px', color: ACCENT_DARK, fontWeight: '500' },
     metricsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0', marginBottom: '48px', borderTop: '1px solid #eee', borderBottom: '1px solid #eee' },
     metricCard: { padding: '32px 24px', borderRight: '1px solid #eee', textAlign: 'center' },
-    metricNumber: { fontSize: '13px', color: '#999', fontWeight: '500', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' },
-    metricValue: { fontSize: '32px', fontWeight: '700', marginBottom: '4px' },
-    metricLabel: { fontSize: '14px', color: '#666' },
+    metricValue: { fontSize: '36px', fontWeight: '800', color: '#1a1a1a' },
+    metricLabel: { fontSize: '14px', color: '#666', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' },
     tabs: { display: 'flex', gap: '8px', marginBottom: '48px' },
     tab: (active) => ({ padding: '12px 24px', borderRadius: '100px', border: 'none', background: active ? ACCENT : 'transparent', color: active ? '#0c4a6e' : '#666', fontWeight: '500', cursor: 'pointer', fontSize: '14px' }),
     sectionTitle: { fontSize: '28px', fontWeight: '700', marginBottom: '8px' },
@@ -735,16 +791,110 @@ export default function App() {
   // ============================================================
   // RENDER
   // ============================================================
+  
+  // Login Screen
+  if (!isLoggedIn) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      }}>
+        <div style={{
+          background: '#fff',
+          borderRadius: '16px',
+          padding: '48px',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.1)',
+          textAlign: 'center',
+          maxWidth: '400px',
+          width: '90%',
+        }}>
+          <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: '700', color: '#1a1a1a' }}>
+            Shorthand Studios
+          </h1>
+          <p style={{ margin: '0 0 32px 0', color: '#666', fontSize: '15px' }}>
+            Revenue Dashboard
+          </p>
+          
+          <input
+            type="password"
+            placeholder="Enter password"
+            value={loginPassword}
+            onChange={(e) => { setLoginPassword(e.target.value); setLoginError(''); }}
+            onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+            style={{
+              width: '100%',
+              padding: '14px 16px',
+              fontSize: '16px',
+              border: loginError ? '2px solid #ef4444' : '2px solid #e5e7eb',
+              borderRadius: '10px',
+              outline: 'none',
+              boxSizing: 'border-box',
+              transition: 'border-color 0.2s',
+            }}
+            autoFocus
+          />
+          
+          {loginError && (
+            <p style={{ color: '#ef4444', fontSize: '14px', margin: '12px 0 0 0' }}>
+              {loginError}
+            </p>
+          )}
+          
+          <button
+            onClick={handleLogin}
+            style={{
+              width: '100%',
+              marginTop: '16px',
+              padding: '14px',
+              fontSize: '16px',
+              fontWeight: '600',
+              color: '#fff',
+              background: ACCENT_DARK,
+              border: 'none',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+            }}
+            onMouseEnter={(e) => e.target.style.background = '#0284c7'}
+            onMouseLeave={(e) => e.target.style.background = ACCENT_DARK}
+          >
+            Sign In
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.container}>
       {/* Header */}
       <div style={styles.header}>
-        <h1 style={styles.title}>
-          Client Earnings<span style={styles.dot}></span>
-        </h1>
-        <p style={styles.subtitle}>
-          {combinedData.length} clients across {platformBreakdown.filter(p => p.value > 0).length} platforms
-        </p>
+        <div>
+          <h1 style={styles.title}>
+            Client Earnings<span style={styles.dot}></span>
+          </h1>
+          <p style={styles.subtitle}>
+            {combinedData.length} clients across {platformBreakdown.filter(p => p.value > 0).length} platforms
+          </p>
+        </div>
+        <button
+          onClick={handleLogout}
+          style={{
+            padding: '8px 16px',
+            fontSize: '13px',
+            color: '#666',
+            background: '#f5f5f5',
+            border: '1px solid #e5e7eb',
+            borderRadius: '8px',
+            cursor: 'pointer',
+          }}
+        >
+          Sign Out
+        </button>
       </div>
 
       {/* Admin Banner */}
@@ -842,15 +992,14 @@ export default function App() {
       {/* Key Metrics */}
       <div style={styles.metricsGrid}>
         {[
-          { num: '01', value: formatCurrency(totals.totalRevenue), label: 'Total Revenue' },
-          { num: '02', value: formatCurrency(totals.youtubeRevenue), label: 'YouTube Revenue' },
-          { num: '03', value: formatCurrency(totals.facebookRevenue), label: 'Facebook Revenue' },
-          { num: '04', value: formatNumber(totals.totalViews), label: 'Total Views' },
+          { value: formatCurrency(totals.totalRevenue), label: 'Total Revenue' },
+          { value: formatCurrency(totals.youtubeRevenue), label: 'YouTube Revenue' },
+          { value: formatCurrency(totals.facebookRevenue), label: 'Facebook Revenue' },
+          { value: formatNumber(totals.totalViews), label: 'Total Views' },
         ].map((metric, i) => (
           <div key={i} style={{ ...styles.metricCard, borderRight: i === 3 ? 'none' : '1px solid #eee' }}>
-            <div style={styles.metricNumber}>{metric.num}</div>
-            <div style={styles.metricValue}>{metric.value}</div>
             <div style={styles.metricLabel}>{metric.label}</div>
+            <div style={styles.metricValue}>{metric.value}</div>
           </div>
         ))}
       </div>
@@ -1014,7 +1163,10 @@ export default function App() {
                 <tr>
                   <th style={{ ...styles.th, width: '48px' }}>#</th>
                   <th style={styles.th}>Page</th>
-                  <th style={styles.thRight}>Revenue</th>
+                  <th style={styles.thRight}>Ads</th>
+                  <th style={styles.thRight}>Stars</th>
+                  <th style={styles.thRight}>Subs</th>
+                  <th style={styles.thRight}>Total</th>
                   <th style={styles.thRight}>Views</th>
                   <th style={styles.thRight}>RPM</th>
                 </tr>
@@ -1024,6 +1176,9 @@ export default function App() {
                   <tr key={i}>
                     <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
                     <td style={{ ...styles.td, fontWeight: '500' }}>{page.page}</td>
+                    <td style={{ ...styles.tdRight, color: (page.adRevenue || 0) > 0 ? '#1a1a1a' : '#ccc' }}>{formatCurrency(page.adRevenue || page.revenue || 0)}</td>
+                    <td style={{ ...styles.tdRight, color: (page.starsRevenue || 0) > 0 ? '#1a1a1a' : '#ccc' }}>{formatCurrency(page.starsRevenue || 0)}</td>
+                    <td style={{ ...styles.tdRight, color: (page.subsRevenue || 0) > 0 ? '#1a1a1a' : '#ccc' }}>{formatCurrency(page.subsRevenue || 0)}</td>
                     <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(page.revenue)}</td>
                     <td style={styles.tdRight}>{formatNumber(page.views)}</td>
                     <td style={{ ...styles.tdRight, color: ACCENT_DARK }}>${page.rpm.toFixed(2)}</td>
@@ -1034,6 +1189,9 @@ export default function App() {
                 <tr style={{ background: '#fafafa' }}>
                   <td style={styles.td}></td>
                   <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
+                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(facebookData.reduce((s, p) => s + (p.adRevenue || p.revenue || 0), 0))}</td>
+                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(facebookData.reduce((s, p) => s + (p.starsRevenue || 0), 0))}</td>
+                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(facebookData.reduce((s, p) => s + (p.subsRevenue || 0), 0))}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(facebookData.reduce((s, p) => s + p.revenue, 0))}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(facebookData.reduce((s, p) => s + p.views, 0))}</td>
                   <td style={styles.tdRight}></td>
