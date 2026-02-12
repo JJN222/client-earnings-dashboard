@@ -215,6 +215,10 @@ export default function App() {
   const [last7DaysData, setLast7DaysData] = useState(null);
   const [mtdData, setMtdData] = useState(null);
   const [refreshingData, setRefreshingData] = useState(false);
+  
+  // YouTube connection status
+  const [youtubeConnected, setYoutubeConnected] = useState(false);
+
   // Check URL params for admin access on mount
   useEffect(() => {
     if (getAdminFromURL()) {
@@ -286,6 +290,15 @@ export default function App() {
         ]);
         if (dbL7d) setLast7DaysData(dbL7d);
         if (dbMtd) setMtdData(dbMtd);
+        
+        // Check YouTube connection status
+        try {
+          const ytStatus = await fetch('/api/youtube/status');
+          const ytData = await ytStatus.json();
+          setYoutubeConnected(ytData.connected);
+        } catch (e) {
+          console.log('Could not check YouTube status');
+        }
       } catch (e) {
         console.error('Failed to load from database:', e);
       }
@@ -1215,7 +1228,7 @@ export default function App() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div>
-              <h2 style={styles.sectionTitle}>Last 7 Days (Facebook)</h2>
+              <h2 style={styles.sectionTitle}>Last 7 Days</h2>
               <p style={styles.sectionSubtitle}>
                 {last7DaysData ? `${last7DaysData.since} to ${last7DaysData.until}` : 'No data available'}
                 {last7DaysData?.lastUpdated && (
@@ -1225,122 +1238,37 @@ export default function App() {
                 )}
               </p>
             </div>
-            {isAdmin && (
-              <button 
-                onClick={triggerDataRefresh} 
-                disabled={refreshingData}
-                style={{ 
-                  padding: '10px 20px', 
-                  background: refreshingData ? '#ccc' : ACCENT_DARK, 
-                  color: '#fff', 
-                  border: 'none', 
-                  borderRadius: '8px', 
-                  cursor: refreshingData ? 'not-allowed' : 'pointer',
-                  fontWeight: '600'
-                }}
-              >
-                {refreshingData ? '⏳ Refreshing...' : '🔄 Refresh Data'}
-              </button>
-            )}
-          </div>
-          
-          {last7DaysData?.daily?.length > 0 ? (
-            <>
-              {/* Daily Revenue/Views Graph */}
-              <div style={{ marginBottom: '48px' }}>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={last7DaysData.daily}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                    <XAxis 
-                      dataKey="date" 
-                      stroke="#999" 
-                      tick={{ fontSize: 12 }}
-                      tickFormatter={(d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                    />
-                    <YAxis yAxisId="revenue" stroke="#999" tickFormatter={formatCurrency} tick={{ fontSize: 12 }} />
-                    <YAxis yAxisId="views" orientation="right" stroke="#999" tickFormatter={formatNumber} tick={{ fontSize: 12 }} />
-                    <Tooltip 
-                      formatter={(value, name) => name === 'Revenue' ? formatCurrency(value) : formatNumber(value)}
-                      labelFormatter={(d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-                      contentStyle={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px' }}
-                    />
-                    <Line yAxisId="revenue" type="monotone" dataKey="revenue" stroke={ACCENT_DARK} strokeWidth={2} name="Revenue" dot={{ fill: ACCENT_DARK }} />
-                    <Line yAxisId="views" type="monotone" dataKey="views" stroke="#999" strokeWidth={2} name="Views" dot={{ fill: '#999' }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              
-              {/* 7-Day Totals */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', marginBottom: '32px' }}>
-                <div style={{ background: '#fafafa', padding: '24px', borderRadius: '12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>7-Day Revenue</div>
-                  <div style={{ fontSize: '28px', fontWeight: '700' }}>
-                    {formatCurrency(last7DaysData.daily.reduce((s, d) => s + d.revenue, 0))}
-                  </div>
-                </div>
-                <div style={{ background: '#fafafa', padding: '24px', borderRadius: '12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>7-Day Views</div>
-                  <div style={{ fontSize: '28px', fontWeight: '700' }}>
-                    {formatNumber(last7DaysData.daily.reduce((s, d) => s + d.views, 0))}
-                  </div>
-                </div>
-                <div style={{ background: '#fafafa', padding: '24px', borderRadius: '12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>Avg Daily Revenue</div>
-                  <div style={{ fontSize: '28px', fontWeight: '700' }}>
-                    {formatCurrency(last7DaysData.daily.reduce((s, d) => s + d.revenue, 0) / last7DaysData.daily.length)}
-                  </div>
-                </div>
-              </div>
-              
-              {/* Client Breakdown Table */}
-              <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>Revenue by Page (7 Days)</h3>
-              {last7DaysData.facebook?.length > 0 && (
-                <table style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th style={{ ...styles.th, width: '48px' }}>#</th>
-                      <th style={styles.th}>Page</th>
-                      <th style={styles.thRight}>Revenue</th>
-                      <th style={styles.thRight}>Views</th>
-                      <th style={styles.thRight}>RPM</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {last7DaysData.facebook.map((page, i) => (
-                      <tr key={i}>
-                        <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
-                        <td style={{ ...styles.td, fontWeight: '500' }}>{page.page}</td>
-                        <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(page.revenue)}</td>
-                        <td style={styles.tdRight}>{formatNumber(page.views)}</td>
-                        <td style={{ ...styles.tdRight, color: ACCENT_DARK }}>${page.rpm.toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ background: '#fafafa' }}>
-                      <td style={styles.td}></td>
-                      <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
-                      <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(last7DaysData.facebook.reduce((s, p) => s + p.revenue, 0))}</td>
-                      <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(last7DaysData.facebook.reduce((s, p) => s + p.views, 0))}</td>
-                      <td style={styles.tdRight}></td>
-                    </tr>
-                  </tfoot>
-                </table>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              {isAdmin && !youtubeConnected && (
+                <a 
+                  href="/auth/google"
+                  style={{ 
+                    padding: '10px 20px', 
+                    background: '#ff0000', 
+                    color: '#fff', 
+                    border: 'none', 
+                    borderRadius: '8px', 
+                    textDecoration: 'none',
+                    fontWeight: '600',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  📺 Connect YouTube
+                </a>
               )}
-            </>
-          ) : (
-            <div style={{ textAlign: 'center', padding: '64px', background: '#fafafa', borderRadius: '12px' }}>
-              <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Last 7 Days data available</div>
-              <div style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>
-                Data is auto-fetched daily at 6am Pacific. 
-                {isAdmin && ' Or click the button below to refresh now.'}
-              </div>
+              {isAdmin && youtubeConnected && (
+                <span style={{ padding: '10px 16px', background: '#e8f5e9', color: '#2e7d32', borderRadius: '8px', fontWeight: '500' }}>
+                  ✓ YouTube Connected
+                </span>
+              )}
               {isAdmin && (
                 <button 
                   onClick={triggerDataRefresh} 
                   disabled={refreshingData}
                   style={{ 
-                    padding: '12px 24px', 
+                    padding: '10px 20px', 
                     background: refreshingData ? '#ccc' : ACCENT_DARK, 
                     color: '#fff', 
                     border: 'none', 
@@ -1349,9 +1277,217 @@ export default function App() {
                     fontWeight: '600'
                   }}
                 >
-                  {refreshingData ? '⏳ Refreshing...' : '🔄 Refresh Data Now'}
+                  {refreshingData ? '⏳ Refreshing...' : '🔄 Refresh Data'}
                 </button>
               )}
+            </div>
+          </div>
+          
+          {(last7DaysData?.facebookDaily?.length > 0 || last7DaysData?.youtubeDaily?.length > 0) ? (
+            <>
+              {/* Daily Revenue Graph - Facebook */}
+              {last7DaysData?.facebookDaily?.length > 0 && (
+                <div style={{ marginBottom: '32px' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px', color: '#666' }}>📘 Facebook Daily Revenue</h3>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <LineChart data={last7DaysData.facebookDaily}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                      <XAxis 
+                        dataKey="date" 
+                        stroke="#999" 
+                        tick={{ fontSize: 12 }}
+                        tickFormatter={(d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      />
+                      <YAxis stroke="#999" tickFormatter={formatCurrency} tick={{ fontSize: 12 }} />
+                      <Tooltip 
+                        formatter={(value) => formatCurrency(value)}
+                        labelFormatter={(d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                        contentStyle={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px' }}
+                      />
+                      <Line type="monotone" dataKey="revenue" stroke={ACCENT_DARK} strokeWidth={2} name="Revenue" dot={{ fill: ACCENT_DARK }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              
+              {/* Daily Revenue Graph - YouTube */}
+              {last7DaysData?.youtubeDaily?.length > 0 && (
+                <div style={{ marginBottom: '32px' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px', color: '#666' }}>📺 YouTube Daily Revenue</h3>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <LineChart data={last7DaysData.youtubeDaily}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                      <XAxis 
+                        dataKey="date" 
+                        stroke="#999" 
+                        tick={{ fontSize: 12 }}
+                        tickFormatter={(d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      />
+                      <YAxis stroke="#999" tickFormatter={formatCurrency} tick={{ fontSize: 12 }} />
+                      <Tooltip 
+                        formatter={(value) => formatCurrency(value)}
+                        labelFormatter={(d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                        contentStyle={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px' }}
+                      />
+                      <Line type="monotone" dataKey="revenue" stroke="#ff0000" strokeWidth={2} name="Revenue" dot={{ fill: '#ff0000' }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              
+              {/* 7-Day Summary Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
+                <div style={{ background: '#fafafa', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>Facebook Revenue</div>
+                  <div style={{ fontSize: '24px', fontWeight: '700', color: ACCENT_DARK }}>
+                    {formatCurrency(last7DaysData.facebookDaily?.reduce((s, d) => s + d.revenue, 0) || 0)}
+                  </div>
+                </div>
+                <div style={{ background: '#fafafa', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>YouTube Revenue</div>
+                  <div style={{ fontSize: '24px', fontWeight: '700', color: '#ff0000' }}>
+                    {formatCurrency(last7DaysData.youtubeDaily?.reduce((s, d) => s + d.revenue, 0) || 0)}
+                  </div>
+                </div>
+                <div style={{ background: '#fafafa', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>Total Revenue</div>
+                  <div style={{ fontSize: '24px', fontWeight: '700' }}>
+                    {formatCurrency(
+                      (last7DaysData.facebookDaily?.reduce((s, d) => s + d.revenue, 0) || 0) +
+                      (last7DaysData.youtubeDaily?.reduce((s, d) => s + d.revenue, 0) || 0)
+                    )}
+                  </div>
+                </div>
+                <div style={{ background: '#fafafa', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>Avg Daily Revenue</div>
+                  <div style={{ fontSize: '24px', fontWeight: '700' }}>
+                    {formatCurrency(
+                      ((last7DaysData.facebookDaily?.reduce((s, d) => s + d.revenue, 0) || 0) +
+                       (last7DaysData.youtubeDaily?.reduce((s, d) => s + d.revenue, 0) || 0)) / 7
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Facebook Table */}
+              {last7DaysData.facebook?.length > 0 && (
+                <>
+                  <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>📘 Facebook Pages (7 Days)</h3>
+                  <table style={{ ...styles.table, marginBottom: '32px' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...styles.th, width: '48px' }}>#</th>
+                        <th style={styles.th}>Page</th>
+                        <th style={styles.thRight}>Revenue</th>
+                        <th style={styles.thRight}>Views</th>
+                        <th style={styles.thRight}>RPM</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {last7DaysData.facebook.map((page, i) => (
+                        <tr key={i}>
+                          <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
+                          <td style={{ ...styles.td, fontWeight: '500' }}>{page.page}</td>
+                          <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(page.revenue)}</td>
+                          <td style={styles.tdRight}>{formatNumber(page.views)}</td>
+                          <td style={{ ...styles.tdRight, color: ACCENT_DARK }}>${page.rpm.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#fafafa' }}>
+                        <td style={styles.td}></td>
+                        <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
+                        <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(last7DaysData.facebook.reduce((s, p) => s + p.revenue, 0))}</td>
+                        <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(last7DaysData.facebook.reduce((s, p) => s + p.views, 0))}</td>
+                        <td style={styles.tdRight}></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </>
+              )}
+              
+              {/* YouTube Table */}
+              {last7DaysData.youtube?.length > 0 && (
+                <>
+                  <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>📺 YouTube Channels (7 Days)</h3>
+                  <table style={styles.table}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...styles.th, width: '48px' }}>#</th>
+                        <th style={styles.th}>Channel</th>
+                        <th style={styles.thRight}>Revenue</th>
+                        <th style={styles.thRight}>Views</th>
+                        <th style={styles.thRight}>RPM</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {last7DaysData.youtube.map((channel, i) => (
+                        <tr key={i}>
+                          <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
+                          <td style={{ ...styles.td, fontWeight: '500' }}>{channel.channel}</td>
+                          <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(channel.revenue)}</td>
+                          <td style={styles.tdRight}>{formatNumber(channel.views)}</td>
+                          <td style={{ ...styles.tdRight, color: '#ff0000' }}>${channel.rpm.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#fafafa' }}>
+                        <td style={styles.td}></td>
+                        <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
+                        <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(last7DaysData.youtube.reduce((s, c) => s + c.revenue, 0))}</td>
+                        <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(last7DaysData.youtube.reduce((s, c) => s + c.views, 0))}</td>
+                        <td style={styles.tdRight}></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </>
+              )}
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '64px', background: '#fafafa', borderRadius: '12px' }}>
+              <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Last 7 Days data available</div>
+              <div style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>
+                Data is auto-fetched daily at 6am Pacific.
+                {isAdmin && !youtubeConnected && ' Connect YouTube to pull channel data.'}
+                {isAdmin && ' Or click the button below to refresh now.'}
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                {isAdmin && !youtubeConnected && (
+                  <a 
+                    href="/auth/google"
+                    style={{ 
+                      padding: '12px 24px', 
+                      background: '#ff0000', 
+                      color: '#fff', 
+                      border: 'none', 
+                      borderRadius: '8px', 
+                      textDecoration: 'none',
+                      fontWeight: '600'
+                    }}
+                  >
+                    📺 Connect YouTube
+                  </a>
+                )}
+                {isAdmin && (
+                  <button 
+                    onClick={triggerDataRefresh} 
+                    disabled={refreshingData}
+                    style={{ 
+                      padding: '12px 24px', 
+                      background: refreshingData ? '#ccc' : ACCENT_DARK, 
+                      color: '#fff', 
+                      border: 'none', 
+                      borderRadius: '8px', 
+                      cursor: refreshingData ? 'not-allowed' : 'pointer',
+                      fontWeight: '600'
+                    }}
+                  >
+                    {refreshingData ? '⏳ Refreshing...' : '🔄 Refresh Data Now'}
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>
