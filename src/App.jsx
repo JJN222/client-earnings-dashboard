@@ -143,11 +143,8 @@ const fetchPages = async (systemToken) => {
 };
 
 // Fetch insights for a single page
-const fetchPageInsights = async (pageId, pageToken, metric, since, until, breakdown = null) => {
-  let url = `https://graph.facebook.com/${API_VERSION}/${pageId}/insights?metric=${metric}&period=day&since=${since}&until=${until}&access_token=${pageToken}`;
-  if (breakdown) {
-    url += `&breakdown=${breakdown}`;
-  }
+const fetchPageInsights = async (pageId, pageToken, metric, since, until) => {
+  const url = `https://graph.facebook.com/${API_VERSION}/${pageId}/insights?metric=${metric}&period=day&since=${since}&until=${until}&access_token=${pageToken}`;
   const response = await fetch(url);
   const data = await response.json();
   if (data.error) {
@@ -158,7 +155,6 @@ const fetchPageInsights = async (pageId, pageToken, metric, since, until, breakd
 };
 
 // Aggregate daily values into a monthly total
-// Handles both simple values and breakdown values
 const sumDailyValues = (values, isRevenue = false) => {
   if (!values || values.length === 0) return 0;
   return values.reduce((sum, day) => {
@@ -169,33 +165,6 @@ const sumDailyValues = (values, isRevenue = false) => {
     }
     return sum + (day.value || 0);
   }, 0);
-};
-
-// Sum revenue from breakdown data by tool type
-const sumBreakdownRevenue = (values) => {
-  if (!values || values.length === 0) return { total: 0, ads: 0, stars: 0, subs: 0 };
-  
-  let ads = 0, stars = 0, subs = 0;
-  
-  values.forEach(day => {
-    const val = day.value || {};
-    // The breakdown keys might be: in_stream_ads, stars, fan_subscriptions, etc.
-    Object.entries(val).forEach(([key, amount]) => {
-      const micro = amount?.microAmount || 0;
-      const usd = micro / MICRO_DIVISOR;
-      
-      if (key.includes('star')) {
-        stars += usd;
-      } else if (key.includes('subscription') || key.includes('fan_sub')) {
-        subs += usd;
-      } else {
-        // Everything else is ads (in_stream, reels, etc.)
-        ads += usd;
-      }
-    });
-  });
-  
-  return { total: ads + stars + subs, ads, stars, subs };
 };
 
 // ============================================================
@@ -242,6 +211,10 @@ export default function App() {
   const [loadingPages, setLoadingPages] = useState(false);
   const [pageSearchFilter, setPageSearchFilter] = useState('');
 
+  // Last 7 Days and MTD data (auto-fetched daily by server)
+  const [last7DaysData, setLast7DaysData] = useState(null);
+  const [mtdData, setMtdData] = useState(null);
+  const [refreshingData, setRefreshingData] = useState(false);
   // Check URL params for admin access on mount
   useEffect(() => {
     if (getAdminFromURL()) {
@@ -305,6 +278,14 @@ export default function App() {
             setExcludedPageIds(dbExcluded);
           }
         }
+        
+        // Load Last 7 Days and MTD data
+        const [dbL7d, dbMtd] = await Promise.all([
+          loadFromDB('last7DaysData'),
+          loadFromDB('mtdData')
+        ]);
+        if (dbL7d) setLast7DaysData(dbL7d);
+        if (dbMtd) setMtdData(dbMtd);
       } catch (e) {
         console.error('Failed to load from database:', e);
       }
@@ -345,6 +326,32 @@ export default function App() {
       localStorage.removeItem(STORAGE_KEY);
       fetch(`/api/data/${STORAGE_KEY}`, { method: 'DELETE' }).catch(() => {});
     }
+  };
+
+  // Manually trigger server-side data refresh (admin only)
+  const triggerDataRefresh = async () => {
+    if (!isAdmin) return;
+    setRefreshingData(true);
+    setUploadStatus('🔄 Refreshing data... This may take a few minutes.');
+    try {
+      const response = await fetch('/api/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminKey: 'shorthand2026' })
+      });
+      const result = await response.json();
+      if (result.success) {
+        setUploadStatus('✓ Refresh started! Data will update in a few minutes. Reload the page to see new data.');
+      } else {
+        setUploadStatus('❌ Refresh failed: ' + (result.error || 'Unknown error'));
+      }
+    } catch (e) {
+      setUploadStatus('❌ Refresh failed: ' + e.message);
+    }
+    setTimeout(() => {
+      setRefreshingData(false);
+      setUploadStatus('');
+    }, 10000);
   };
 
   // ============================================================
@@ -464,17 +471,11 @@ export default function App() {
         setFetchProgress(`Fetching ${pageName} (${i + 1}/${activePages.length})...`);
         log(`📊 Fetching ${pageName}...`);
 
-        // Fetch revenue with breakdown by monetization tool (ads, stars, subscriptions)
+        // Fetch revenue
         const revenueData = await fetchPageInsights(
-          pageId, pageToken, 'monetization_approximate_earnings',
-          dateRange.since, dateRange.until, 'monetization_tool'
-        );
-
-        // Fallback to content_monetization_earnings if breakdown doesn't work
-        const fallbackData = !revenueData ? await fetchPageInsights(
           pageId, pageToken, 'content_monetization_earnings',
           dateRange.since, dateRange.until
-        ) : null;
+        );
 
         // Fetch views
         const viewsData = await fetchPageInsights(
@@ -482,20 +483,7 @@ export default function App() {
           dateRange.since, dateRange.until
         );
 
-        // Parse revenue - try breakdown first, then fallback
-        let revenue = 0, adsRevenue = 0, starsRevenue = 0, subsRevenue = 0;
-        
-        if (revenueData) {
-          const breakdown = sumBreakdownRevenue(revenueData);
-          revenue = breakdown.total;
-          adsRevenue = breakdown.ads;
-          starsRevenue = breakdown.stars;
-          subsRevenue = breakdown.subs;
-        } else if (fallbackData) {
-          revenue = sumDailyValues(fallbackData, true);
-          adsRevenue = revenue; // All goes to ads if no breakdown
-        }
-        
+        const revenue = sumDailyValues(revenueData, true);
         const views = sumDailyValues(viewsData, false);
 
         // Only include pages that have some data
@@ -505,17 +493,11 @@ export default function App() {
             page: pageName,
             pageId: pageId,
             revenue: Math.round(revenue * 100) / 100,
-            adsRevenue: Math.round(adsRevenue * 100) / 100,
-            starsRevenue: Math.round(starsRevenue * 100) / 100,
-            subsRevenue: Math.round(subsRevenue * 100) / 100,
             views: views,
             rpm: Math.round(rpm * 100) / 100,
             engagements: 0,
           });
-          const breakdownStr = starsRevenue > 0 || subsRevenue > 0 
-            ? ` (ads: $${adsRevenue.toFixed(2)}, stars: $${starsRevenue.toFixed(2)}, subs: $${subsRevenue.toFixed(2)})`
-            : '';
-          log(`  ✓ ${pageName}: $${revenue.toFixed(2)} revenue${breakdownStr}, ${views.toLocaleString()} views`);
+          log(`  ✓ ${pageName}: $${revenue.toFixed(2)} revenue, ${views.toLocaleString()} views`);
           successCount++;
         } else {
           log(`  ⊘ ${pageName}: no revenue/views data`);
@@ -1041,9 +1023,9 @@ export default function App() {
 
       {/* Tabs */}
       <div style={styles.tabs}>
-        {['overview', 'youtube', 'facebook', 'trends'].map(tab => (
+        {['overview', 'youtube', 'facebook', 'last7days', 'trends'].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={styles.tab(activeTab === tab)}>
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === 'last7days' ? 'Last 7 Days' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
@@ -1198,10 +1180,7 @@ export default function App() {
                 <tr>
                   <th style={{ ...styles.th, width: '48px' }}>#</th>
                   <th style={styles.th}>Page</th>
-                  <th style={styles.thRight}>Ads</th>
-                  <th style={styles.thRight}>Stars</th>
-                  <th style={styles.thRight}>Subs</th>
-                  <th style={styles.thRight}>Total</th>
+                  <th style={styles.thRight}>Revenue</th>
                   <th style={styles.thRight}>Views</th>
                   <th style={styles.thRight}>RPM</th>
                 </tr>
@@ -1211,9 +1190,6 @@ export default function App() {
                   <tr key={i}>
                     <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
                     <td style={{ ...styles.td, fontWeight: '500' }}>{page.page}</td>
-                    <td style={{ ...styles.tdRight, color: (page.adsRevenue || 0) > 0 ? '#1a1a1a' : '#ccc' }}>{formatCurrency(page.adsRevenue || 0)}</td>
-                    <td style={{ ...styles.tdRight, color: (page.starsRevenue || 0) > 0 ? '#1a1a1a' : '#ccc' }}>{formatCurrency(page.starsRevenue || 0)}</td>
-                    <td style={{ ...styles.tdRight, color: (page.subsRevenue || 0) > 0 ? '#1a1a1a' : '#ccc' }}>{formatCurrency(page.subsRevenue || 0)}</td>
                     <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(page.revenue)}</td>
                     <td style={styles.tdRight}>{formatNumber(page.views)}</td>
                     <td style={{ ...styles.tdRight, color: ACCENT_DARK }}>${page.rpm.toFixed(2)}</td>
@@ -1224,15 +1200,159 @@ export default function App() {
                 <tr style={{ background: '#fafafa' }}>
                   <td style={styles.td}></td>
                   <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
-                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(facebookData.reduce((s, p) => s + (p.adsRevenue || 0), 0))}</td>
-                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(facebookData.reduce((s, p) => s + (p.starsRevenue || 0), 0))}</td>
-                  <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(facebookData.reduce((s, p) => s + (p.subsRevenue || 0), 0))}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(facebookData.reduce((s, p) => s + p.revenue, 0))}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(facebookData.reduce((s, p) => s + p.views, 0))}</td>
                   <td style={styles.tdRight}></td>
                 </tr>
               </tfoot>
             </table>
+          )}
+        </div>
+      )}
+
+      {/* Last 7 Days Tab */}
+      {activeTab === 'last7days' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <div>
+              <h2 style={styles.sectionTitle}>Last 7 Days (Facebook)</h2>
+              <p style={styles.sectionSubtitle}>
+                {last7DaysData ? `${last7DaysData.since} to ${last7DaysData.until}` : 'No data available'}
+                {last7DaysData?.lastUpdated && (
+                  <span style={{ marginLeft: '12px', color: '#999' }}>
+                    Updated: {new Date(last7DaysData.lastUpdated).toLocaleString()}
+                  </span>
+                )}
+              </p>
+            </div>
+            {isAdmin && (
+              <button 
+                onClick={triggerDataRefresh} 
+                disabled={refreshingData}
+                style={{ 
+                  padding: '10px 20px', 
+                  background: refreshingData ? '#ccc' : ACCENT_DARK, 
+                  color: '#fff', 
+                  border: 'none', 
+                  borderRadius: '8px', 
+                  cursor: refreshingData ? 'not-allowed' : 'pointer',
+                  fontWeight: '600'
+                }}
+              >
+                {refreshingData ? '⏳ Refreshing...' : '🔄 Refresh Data'}
+              </button>
+            )}
+          </div>
+          
+          {last7DaysData?.daily?.length > 0 ? (
+            <>
+              {/* Daily Revenue/Views Graph */}
+              <div style={{ marginBottom: '48px' }}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={last7DaysData.daily}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                    <XAxis 
+                      dataKey="date" 
+                      stroke="#999" 
+                      tick={{ fontSize: 12 }}
+                      tickFormatter={(d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                    />
+                    <YAxis yAxisId="revenue" stroke="#999" tickFormatter={formatCurrency} tick={{ fontSize: 12 }} />
+                    <YAxis yAxisId="views" orientation="right" stroke="#999" tickFormatter={formatNumber} tick={{ fontSize: 12 }} />
+                    <Tooltip 
+                      formatter={(value, name) => name === 'Revenue' ? formatCurrency(value) : formatNumber(value)}
+                      labelFormatter={(d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                      contentStyle={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px' }}
+                    />
+                    <Line yAxisId="revenue" type="monotone" dataKey="revenue" stroke={ACCENT_DARK} strokeWidth={2} name="Revenue" dot={{ fill: ACCENT_DARK }} />
+                    <Line yAxisId="views" type="monotone" dataKey="views" stroke="#999" strokeWidth={2} name="Views" dot={{ fill: '#999' }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              
+              {/* 7-Day Totals */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', marginBottom: '32px' }}>
+                <div style={{ background: '#fafafa', padding: '24px', borderRadius: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>7-Day Revenue</div>
+                  <div style={{ fontSize: '28px', fontWeight: '700' }}>
+                    {formatCurrency(last7DaysData.daily.reduce((s, d) => s + d.revenue, 0))}
+                  </div>
+                </div>
+                <div style={{ background: '#fafafa', padding: '24px', borderRadius: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>7-Day Views</div>
+                  <div style={{ fontSize: '28px', fontWeight: '700' }}>
+                    {formatNumber(last7DaysData.daily.reduce((s, d) => s + d.views, 0))}
+                  </div>
+                </div>
+                <div style={{ background: '#fafafa', padding: '24px', borderRadius: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>Avg Daily Revenue</div>
+                  <div style={{ fontSize: '28px', fontWeight: '700' }}>
+                    {formatCurrency(last7DaysData.daily.reduce((s, d) => s + d.revenue, 0) / last7DaysData.daily.length)}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Client Breakdown Table */}
+              <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>Revenue by Page (7 Days)</h3>
+              {last7DaysData.facebook?.length > 0 && (
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...styles.th, width: '48px' }}>#</th>
+                      <th style={styles.th}>Page</th>
+                      <th style={styles.thRight}>Revenue</th>
+                      <th style={styles.thRight}>Views</th>
+                      <th style={styles.thRight}>RPM</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {last7DaysData.facebook.map((page, i) => (
+                      <tr key={i}>
+                        <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
+                        <td style={{ ...styles.td, fontWeight: '500' }}>{page.page}</td>
+                        <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(page.revenue)}</td>
+                        <td style={styles.tdRight}>{formatNumber(page.views)}</td>
+                        <td style={{ ...styles.tdRight, color: ACCENT_DARK }}>${page.rpm.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: '#fafafa' }}>
+                      <td style={styles.td}></td>
+                      <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
+                      <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(last7DaysData.facebook.reduce((s, p) => s + p.revenue, 0))}</td>
+                      <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(last7DaysData.facebook.reduce((s, p) => s + p.views, 0))}</td>
+                      <td style={styles.tdRight}></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '64px', background: '#fafafa', borderRadius: '12px' }}>
+              <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Last 7 Days data available</div>
+              <div style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>
+                Data is auto-fetched daily at 6am Pacific. 
+                {isAdmin && ' Or click the button below to refresh now.'}
+              </div>
+              {isAdmin && (
+                <button 
+                  onClick={triggerDataRefresh} 
+                  disabled={refreshingData}
+                  style={{ 
+                    padding: '12px 24px', 
+                    background: refreshingData ? '#ccc' : ACCENT_DARK, 
+                    color: '#fff', 
+                    border: 'none', 
+                    borderRadius: '8px', 
+                    cursor: refreshingData ? 'not-allowed' : 'pointer',
+                    fontWeight: '600'
+                  }}
+                >
+                  {refreshingData ? '⏳ Refreshing...' : '🔄 Refresh Data Now'}
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}
