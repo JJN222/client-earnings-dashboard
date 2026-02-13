@@ -472,6 +472,23 @@ app.get('/api/refresh-status', async (req, res) => {
   }
 });
 
+// Fetch YouTube data for a specific month
+app.post('/api/youtube/fetch-month', async (req, res) => {
+  const { adminKey, startDate, endDate } = req.body;
+  if (adminKey !== 'shorthand2026') {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+  
+  try {
+    console.log(`📺 Fetching YouTube data for ${startDate} to ${endDate}...`);
+    const data = await fetchYouTubeData(startDate, endDate);
+    res.json({ success: true, data: data.channels });
+  } catch (err) {
+    console.error('YouTube fetch error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ============================================================
 // GOOGLE OAUTH ROUTES
 // ============================================================

@@ -200,6 +200,7 @@ export default function App() {
   const [metaConfig, setMetaConfig] = useState(() => loadFromStorage(META_CONFIG_KEY) || { systemToken: '' });
   const [metaTokenInput, setMetaTokenInput] = useState('');
   const [fetchingFB, setFetchingFB] = useState(false);
+  const [fetchingYT, setFetchingYT] = useState(false);
   const [fetchProgress, setFetchProgress] = useState('');
   const [fetchLog, setFetchLog] = useState([]);
 
@@ -550,6 +551,76 @@ export default function App() {
       setTimeout(() => setUploadStatus(''), 5000);
     } finally {
       setFetchingFB(false);
+    }
+  };
+
+  // ============================================================
+  // YOUTUBE API: FETCH MONTHLY DATA
+  // ============================================================
+  const fetchYouTubeMonthlyData = async () => {
+    if (!youtubeConnected) {
+      setUploadStatus('❌ YouTube not connected. Go to Last 7 Days tab to connect.');
+      setTimeout(() => setUploadStatus(''), 5000);
+      return;
+    }
+
+    const dateRange = getMonthDateRange(selectedMonth);
+    if (!dateRange) {
+      setUploadStatus('❌ Could not parse month. Use format "January 2026"');
+      return;
+    }
+
+    setFetchingYT(true);
+    setFetchLog([]);
+    const log = (msg) => setFetchLog(prev => [...prev, msg]);
+    
+    try {
+      log('📺 Fetching YouTube data from API...');
+      setFetchProgress('Fetching YouTube channels...');
+      
+      const response = await fetch('/api/youtube/fetch-month', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminKey: 'shorthand2026',
+          startDate: dateRange.since,
+          endDate: dateRange.until
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch YouTube data');
+      }
+      
+      const ytResults = result.data || [];
+      log(`✓ Received data for ${ytResults.length} channels`);
+      
+      // Update dashboard data
+      setAllData(prev => ({
+        ...prev,
+        [selectedMonth]: {
+          ...prev[selectedMonth],
+          youtube: ytResults
+        }
+      }));
+
+      const totalRevenue = ytResults.reduce((sum, c) => sum + c.revenue, 0);
+      log('');
+      log(`✅ Done! ${ytResults.length} channels with data`);
+      log(`💰 Total YouTube revenue: $${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`);
+      setFetchProgress('');
+      setUploadStatus(`✓ Loaded ${ytResults.length} YouTube channels via API`);
+      setTimeout(() => setUploadStatus(''), 5000);
+
+    } catch (err) {
+      log(`❌ Error: ${err.message}`);
+      setFetchProgress('');
+      setUploadStatus(`❌ YouTube API error: ${err.message}`);
+      setTimeout(() => setUploadStatus(''), 5000);
+    } finally {
+      setFetchingYT(false);
     }
   };
 
@@ -1126,37 +1197,100 @@ export default function App() {
         <div>
           <h2 style={styles.sectionTitle}>YouTube Channels</h2>
           <p style={styles.sectionSubtitle}>Detailed performance metrics for {selectedMonth}</p>
-          <div style={styles.sortControls}>
-            <span style={{ fontSize: '13px', color: '#999' }}>Sort by</span>
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={styles.select}>
-              <option value="revenue">Revenue</option>
-              <option value="views">Views</option>
-              <option value="cpm">CPM</option>
-              <option value="rpm">RPM</option>
-              <option value="subscribers">Subscribers</option>
-              <option value="watchHours">Watch Hours</option>
-            </select>
-            <button onClick={() => setSortOrder(o => o === 'desc' ? 'asc' : 'desc')} style={{ ...styles.select, cursor: 'pointer' }}>
-              {sortOrder === 'desc' ? '↓ Descending' : '↑ Ascending'}
-            </button>
-          </div>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={{ ...styles.th, width: '48px' }}>#</th>
-                <th style={styles.th}>Channel</th>
-                <th style={styles.thRight}>Revenue</th>
-                <th style={styles.thRight}>Views</th>
-                <th style={styles.thRight}>CPM</th>
-                <th style={styles.thRight}>RPM</th>
-                <th style={styles.thRight}>Subscribers</th>
-                <th style={styles.thRight}>Watch Hours</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedYoutubeData.map((channel, i) => (
-                <tr key={i}>
-                  <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
+          
+          {/* Show fetch button when no data */}
+          {isAdmin && youtubeData.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
+              <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No YouTube data for this month</div>
+              <div style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>
+                {youtubeConnected 
+                  ? 'Click the button below to fetch from YouTube API'
+                  : 'Connect YouTube first on the Last 7 Days tab, then fetch data here'
+                }
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                {!youtubeConnected && (
+                  <a 
+                    href="/auth/google"
+                    style={{ 
+                      padding: '12px 24px', 
+                      background: '#ff0000', 
+                      color: '#fff', 
+                      border: 'none', 
+                      borderRadius: '8px', 
+                      textDecoration: 'none',
+                      fontWeight: '600'
+                    }}
+                  >
+                    📺 Connect YouTube
+                  </a>
+                )}
+                <button 
+                  onClick={fetchYouTubeMonthlyData} 
+                  disabled={fetchingYT || !youtubeConnected} 
+                  style={(fetchingYT || !youtubeConnected) ? styles.fetchBtnDisabled : { ...styles.fetchBtn, background: '#ff0000' }}
+                >
+                  {fetchingYT ? '⏳ Fetching...' : '📺 Fetch YouTube Data'}
+                </button>
+              </div>
+            </div>
+          )}
+          
+          {/* Show refetch button when data exists */}
+          {isAdmin && youtubeData.length > 0 && youtubeConnected && (
+            <div style={{ marginBottom: '16px' }}>
+              <button 
+                onClick={fetchYouTubeMonthlyData} 
+                disabled={fetchingYT} 
+                style={{ 
+                  padding: '8px 16px', 
+                  background: fetchingYT ? '#ccc' : '#ff0000', 
+                  color: '#fff', 
+                  border: 'none', 
+                  borderRadius: '6px',
+                  cursor: fetchingYT ? 'not-allowed' : 'pointer',
+                  fontWeight: '500',
+                  fontSize: '13px'
+                }}
+              >
+                {fetchingYT ? '⏳ Fetching...' : '🔄 Refetch YouTube Data'}
+              </button>
+            </div>
+          )}
+          
+          {youtubeData.length > 0 && (
+            <>
+              <div style={styles.sortControls}>
+                <span style={{ fontSize: '13px', color: '#999' }}>Sort by</span>
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={styles.select}>
+                  <option value="revenue">Revenue</option>
+                  <option value="views">Views</option>
+                  <option value="cpm">CPM</option>
+                  <option value="rpm">RPM</option>
+                  <option value="subscribers">Subscribers</option>
+                  <option value="watchHours">Watch Hours</option>
+                </select>
+                <button onClick={() => setSortOrder(o => o === 'desc' ? 'asc' : 'desc')} style={{ ...styles.select, cursor: 'pointer' }}>
+                  {sortOrder === 'desc' ? '↓ Descending' : '↑ Ascending'}
+                </button>
+              </div>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={{ ...styles.th, width: '48px' }}>#</th>
+                    <th style={styles.th}>Channel</th>
+                    <th style={styles.thRight}>Revenue</th>
+                    <th style={styles.thRight}>Views</th>
+                    <th style={styles.thRight}>CPM</th>
+                    <th style={styles.thRight}>RPM</th>
+                    <th style={styles.thRight}>Subscribers</th>
+                    <th style={styles.thRight}>Watch Hours</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedYoutubeData.map((channel, i) => (
+                    <tr key={i}>
+                      <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
                   <td style={{ ...styles.td, fontWeight: '500' }}>{channel.channel}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(channel.revenue)}</td>
                   <td style={styles.tdRight}>{formatNumber(channel.views)}</td>
@@ -1170,6 +1304,8 @@ export default function App() {
               ))}
             </tbody>
           </table>
+            </>
+          )}
         </div>
       )}
 
