@@ -1010,6 +1010,33 @@ export default function App() {
             >
               {fetchingFB ? '⏳ Fetching...' : '📘 Fetch Facebook Data'}
             </button>
+            <button
+              onClick={fetchYouTubeMonthlyData}
+              disabled={fetchingYT || !youtubeConnected}
+              style={(fetchingYT || !youtubeConnected) ? styles.fetchBtnDisabled : { ...styles.fetchBtn, background: '#ff0000', borderColor: '#ff0000' }}
+              title={!youtubeConnected ? 'Connect YouTube first on Last 7 Days tab' : ''}
+            >
+              {fetchingYT ? '⏳ Fetching...' : '📺 Fetch YouTube Data'}
+            </button>
+            {!youtubeConnected && (
+              <a 
+                href="/auth/google"
+                style={{ 
+                  padding: '6px 12px', 
+                  background: '#ff0000', 
+                  color: '#fff', 
+                  border: 'none', 
+                  borderRadius: '6px', 
+                  textDecoration: 'none',
+                  fontWeight: '500',
+                  fontSize: '13px',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+              >
+                Connect YouTube
+              </a>
+            )}
             <button onClick={() => { setMetaTokenInput(metaConfig.systemToken || ''); setShowMetaSettings(true); }} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
               ⚙️ API Settings
             </button>
@@ -1027,7 +1054,7 @@ export default function App() {
       )}
 
       {/* Fetch Progress */}
-      {fetchingFB && fetchProgress && (
+      {(fetchingFB || fetchingYT) && fetchProgress && (
         <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '16px', marginBottom: '24px' }}>
           <div style={{ fontSize: '14px', fontWeight: '500', color: '#0369a1', marginBottom: '8px' }}>
             {fetchProgress}
@@ -1198,63 +1225,18 @@ export default function App() {
           <h2 style={styles.sectionTitle}>YouTube Channels</h2>
           <p style={styles.sectionSubtitle}>Detailed performance metrics for {selectedMonth}</p>
           
-          {/* Show fetch button when no data */}
-          {isAdmin && youtubeData.length === 0 && (
+          {/* Show message when no data */}
+          {youtubeData.length === 0 && (
             <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No YouTube data for this month</div>
-              <div style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>
-                {youtubeConnected 
-                  ? 'Click the button below to fetch from YouTube API'
-                  : 'Connect YouTube first on the Last 7 Days tab, then fetch data here'
+              <div style={{ fontSize: '14px', color: '#666' }}>
+                {isAdmin 
+                  ? (youtubeConnected 
+                      ? 'Use "Fetch YouTube Data" button in the admin bar above'
+                      : 'Connect YouTube using the button in the admin bar above, then fetch data')
+                  : 'No data available for this month'
                 }
               </div>
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-                {!youtubeConnected && (
-                  <a 
-                    href="/auth/google"
-                    style={{ 
-                      padding: '12px 24px', 
-                      background: '#ff0000', 
-                      color: '#fff', 
-                      border: 'none', 
-                      borderRadius: '8px', 
-                      textDecoration: 'none',
-                      fontWeight: '600'
-                    }}
-                  >
-                    📺 Connect YouTube
-                  </a>
-                )}
-                <button 
-                  onClick={fetchYouTubeMonthlyData} 
-                  disabled={fetchingYT || !youtubeConnected} 
-                  style={(fetchingYT || !youtubeConnected) ? styles.fetchBtnDisabled : { ...styles.fetchBtn, background: '#ff0000' }}
-                >
-                  {fetchingYT ? '⏳ Fetching...' : '📺 Fetch YouTube Data'}
-                </button>
-              </div>
-            </div>
-          )}
-          
-          {/* Show refetch button when data exists */}
-          {isAdmin && youtubeData.length > 0 && youtubeConnected && (
-            <div style={{ marginBottom: '16px' }}>
-              <button 
-                onClick={fetchYouTubeMonthlyData} 
-                disabled={fetchingYT} 
-                style={{ 
-                  padding: '8px 16px', 
-                  background: fetchingYT ? '#ccc' : '#ff0000', 
-                  color: '#fff', 
-                  border: 'none', 
-                  borderRadius: '6px',
-                  cursor: fetchingYT ? 'not-allowed' : 'pointer',
-                  fontWeight: '500',
-                  fontSize: '13px'
-                }}
-              >
-                {fetchingYT ? '⏳ Fetching...' : '🔄 Refetch YouTube Data'}
-              </button>
             </div>
           )}
           
@@ -1314,13 +1296,15 @@ export default function App() {
         <div>
           <h2 style={styles.sectionTitle}>Facebook Pages</h2>
           <p style={styles.sectionSubtitle}>Monthly performance for {selectedMonth}</p>
-          {isAdmin && facebookData.length === 0 && (
+          {facebookData.length === 0 && (
             <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Facebook data for this month</div>
-              <div style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>Click the button below to auto-fetch from Meta's API</div>
-              <button onClick={fetchFacebookData} disabled={fetchingFB} style={fetchingFB ? styles.fetchBtnDisabled : styles.fetchBtn}>
-                {fetchingFB ? '⏳ Fetching...' : '📘 Fetch Facebook Data'}
-              </button>
+              <div style={{ fontSize: '14px', color: '#666' }}>
+                {isAdmin 
+                  ? 'Use "Fetch Facebook Data" button in the admin bar above'
+                  : 'No data available for this month'
+                }
+              </div>
             </div>
           )}
           {facebookData.length > 0 && (
