@@ -656,7 +656,44 @@ export default function App() {
     
     let workbook;
     try {
-      workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      // Use sheetStubs to ensure we read all data even if dimension tag is wrong
+      workbook = XLSX.read(arrayBuffer, { type: 'array', sheetStubs: true });
+      
+      // Fix sheets with incorrect dimensions by forcing a re-calculation
+      workbook.SheetNames.forEach(name => {
+        const sheet = workbook.Sheets[name];
+        if (sheet && sheet['!ref']) {
+          // Delete the ref to force XLSX to recalculate from actual cells
+          const oldRef = sheet['!ref'];
+          delete sheet['!ref'];
+          // Get all cell addresses
+          const cells = Object.keys(sheet).filter(k => !k.startsWith('!'));
+          if (cells.length > 0) {
+            // Find the actual range from cell addresses
+            let maxRow = 0, maxCol = 0, minRow = Infinity, minCol = Infinity;
+            cells.forEach(addr => {
+              const match = addr.match(/([A-Z]+)(\d+)/);
+              if (match) {
+                const col = match[1].split('').reduce((acc, c) => acc * 26 + c.charCodeAt(0) - 64, 0);
+                const row = parseInt(match[2]);
+                maxRow = Math.max(maxRow, row);
+                maxCol = Math.max(maxCol, col);
+                minRow = Math.min(minRow, row);
+                minCol = Math.min(minCol, col);
+              }
+            });
+            // Convert back to A1 notation
+            const colToLetter = (n) => {
+              let s = '';
+              while (n > 0) { s = String.fromCharCode(((n - 1) % 26) + 65) + s; n = Math.floor((n - 1) / 26); }
+              return s;
+            };
+            const newRef = `${colToLetter(minCol)}${minRow}:${colToLetter(maxCol)}${maxRow}`;
+            sheet['!ref'] = newRef;
+            console.log(`MSN Parser: Fixed sheet "${name}" range from ${oldRef} to ${newRef}`);
+          }
+        }
+      });
     } catch (err) {
       console.error('MSN Parser: Error reading workbook:', err);
       return [];
