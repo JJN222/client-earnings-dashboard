@@ -1,8 +1,10 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
+import * as XLSX from 'xlsx';
 
 const ACCENT = '#7DD3FC';
 const ACCENT_DARK = '#0EA5E9';
+const MSN_COLOR = '#0078D4'; // Microsoft blue
 const API_VERSION = 'v24.0';
 const MICRO_DIVISOR = 100000000; // microAmount ÷ this = USD
 
@@ -630,6 +632,7 @@ export default function App() {
   const youtubeData = allData[selectedMonth]?.youtube || [];
   const facebookDataRaw = allData[selectedMonth]?.facebook || [];
   const facebookData = facebookDataRaw.filter(d => !currentExcluded.includes(d.pageId));
+  const msnData = allData[selectedMonth]?.msn || [];
   const months = Object.keys(allData).sort((a, b) => {
     const parseMonth = (str) => {
       const [monthName, year] = str.split(' ');
@@ -638,6 +641,81 @@ export default function App() {
     };
     return parseMonth(a) - parseMonth(b);
   });
+
+  // Parse MSN Excel file (reads Embedded Video and Watched Video sheets)
+  const parseMSNExcel = (arrayBuffer) => {
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    const brandData = {};
+    
+    // Helper to process a sheet
+    const processSheet = (sheetName, revenueType) => {
+      const sheet = workbook.Sheets[sheetName];
+      if (!sheet) return;
+      
+      const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      // Find header row (contains 'Brand (Provider)')
+      let headerIdx = data.findIndex(row => row.includes('Brand (Provider)'));
+      if (headerIdx === -1) return;
+      
+      const headers = data[headerIdx];
+      const brandCol = headers.indexOf('Brand (Provider)');
+      const revenueCol = headers.indexOf('Content Partner RevShare');
+      const secondsCol = headers.indexOf('Consumed Video (seconds)');
+      
+      if (brandCol === -1 || revenueCol === -1) return;
+      
+      // Process data rows
+      for (let i = headerIdx + 1; i < data.length; i++) {
+        const row = data[i];
+        if (!row || !row[brandCol]) continue;
+        
+        const brand = row[brandCol];
+        const revenue = parseFloat(row[revenueCol]) || 0;
+        const seconds = parseFloat(row[secondsCol]) || 0;
+        
+        if (!brandData[brand]) {
+          brandData[brand] = { brand, embeddedRevenue: 0, watchedRevenue: 0, watchSeconds: 0 };
+        }
+        
+        if (revenueType === 'embedded') {
+          brandData[brand].embeddedRevenue += revenue;
+        } else {
+          brandData[brand].watchedRevenue += revenue;
+        }
+        brandData[brand].watchSeconds += seconds;
+      }
+    };
+    
+    // Process both sheets - try different possible names
+    const embeddedSheets = ['Embedded Video Brands & Country', 'Embeded Video Brands & Country'];
+    const watchedSheets = ['Watch Video Brands & Country', 'Watched Video Brands & Country'];
+    
+    for (const name of embeddedSheets) {
+      if (workbook.SheetNames.includes(name)) {
+        processSheet(name, 'embedded');
+        break;
+      }
+    }
+    
+    for (const name of watchedSheets) {
+      if (workbook.SheetNames.includes(name)) {
+        processSheet(name, 'watched');
+        break;
+      }
+    }
+    
+    // Convert to array and calculate totals
+    return Object.values(brandData)
+      .map(d => ({
+        brand: d.brand,
+        embeddedRevenue: Math.round(d.embeddedRevenue * 100) / 100,
+        watchedRevenue: Math.round(d.watchedRevenue * 100) / 100,
+        revenue: Math.round((d.embeddedRevenue + d.watchedRevenue) * 100) / 100,
+        watchHours: Math.round(d.watchSeconds / 3600 * 10) / 10
+      }))
+      .filter(d => d.revenue > 0)
+      .sort((a, b) => b.revenue - a.revenue);
+  };
 
   const parseYoutubeCSV = (text) => {
     const lines = text.trim().split('\n');
@@ -713,38 +791,65 @@ export default function App() {
   };
 
   const processFile = useCallback((file) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target.result;
-      let fileType = selectedPlatform;
-      if (fileType === 'auto') {
-        fileType = detectFileType(text);
-        if (!fileType) { setUploadStatus('Could not detect file type.'); return; }
-      }
-      let parsedData;
-      if (fileType === 'youtube') {
-        parsedData = parseYoutubeCSV(text);
-        if (parsedData.length > 0) {
-          setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], youtube: parsedData } }));
-          setUploadStatus(`✓ Loaded ${parsedData.length} YouTube channels`);
+    const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+    
+    if (isExcel) {
+      // Handle MSN Excel files
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const parsedData = parseMSNExcel(e.target.result);
+          if (parsedData.length > 0) {
+            setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], msn: parsedData } }));
+            setUploadStatus(`✓ Loaded ${parsedData.length} MSN brands`);
+          } else {
+            setUploadStatus('❌ No MSN data found in file');
+          }
+        } catch (err) {
+          setUploadStatus(`❌ Error parsing Excel: ${err.message}`);
         }
-      } else if (fileType === 'facebook') {
-        parsedData = parseFacebookCSV(text);
-        if (parsedData.length > 0) {
-          setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], facebook: parsedData } }));
-          setUploadStatus(`✓ Loaded ${parsedData.length} Facebook pages`);
+        setTimeout(() => setUploadStatus(''), 3000);
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      // Handle CSV files (YouTube, Facebook)
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target.result;
+        let fileType = selectedPlatform;
+        if (fileType === 'auto') {
+          fileType = detectFileType(text);
+          if (!fileType) { setUploadStatus('Could not detect file type.'); return; }
         }
-      }
-      setTimeout(() => setUploadStatus(''), 3000);
-    };
-    reader.readAsText(file);
+        let parsedData;
+        if (fileType === 'youtube') {
+          parsedData = parseYoutubeCSV(text);
+          if (parsedData.length > 0) {
+            setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], youtube: parsedData } }));
+            setUploadStatus(`✓ Loaded ${parsedData.length} YouTube channels`);
+          }
+        } else if (fileType === 'facebook') {
+          parsedData = parseFacebookCSV(text);
+          if (parsedData.length > 0) {
+            setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], facebook: parsedData } }));
+            setUploadStatus(`✓ Loaded ${parsedData.length} Facebook pages`);
+          }
+        }
+        setTimeout(() => setUploadStatus(''), 3000);
+      };
+      reader.readAsText(file);
+    }
   }, [selectedMonth, selectedPlatform]);
 
   const handleDragOver = useCallback((e) => { e.preventDefault(); setDragOver(true); }, []);
   const handleDragLeave = useCallback((e) => { e.preventDefault(); setDragOver(false); }, []);
   const handleDrop = useCallback((e) => {
     e.preventDefault(); setDragOver(false);
-    Array.from(e.dataTransfer.files).forEach(file => { if (file.name.endsWith('.csv')) processFile(file); });
+    Array.from(e.dataTransfer.files).forEach(file => { 
+      if (file.name.endsWith('.csv') || file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+        processFile(file); 
+      }
+    });
   }, [processFile]);
   const handleFileSelect = (e) => { Array.from(e.target.files).forEach(processFile); };
 
@@ -785,37 +890,55 @@ export default function App() {
     const clientMap = new Map();
     youtubeData.forEach(item => {
       const name = item.channel;
-      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, total: 0 });
+      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, total: 0 });
       clientMap.get(name).youtube = item.revenue;
       clientMap.get(name).total += item.revenue;
     });
     facebookData.forEach(item => {
       const name = item.page;
-      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, total: 0 });
+      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, total: 0 });
       clientMap.get(name).facebook = item.revenue;
       clientMap.get(name).total += item.revenue;
     });
+    msnData.forEach(item => {
+      const name = item.brand;
+      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, total: 0 });
+      clientMap.get(name).msn = item.revenue;
+      clientMap.get(name).total += item.revenue;
+    });
     return Array.from(clientMap.values()).sort((a, b) => b.total - a.total);
-  }, [youtubeData, facebookData]);
+  }, [youtubeData, facebookData, msnData]);
 
   const totals = useMemo(() => {
     const ytRevenue = youtubeData.reduce((sum, d) => sum + d.revenue, 0);
     const fbRevenue = facebookData.reduce((sum, d) => sum + d.revenue, 0);
+    const msnRevenue = msnData.reduce((sum, d) => sum + d.revenue, 0);
     const ytViews = youtubeData.reduce((sum, d) => sum + d.views, 0);
     const fbViews = facebookData.reduce((sum, d) => sum + d.views, 0);
-    return { totalRevenue: ytRevenue + fbRevenue, youtubeRevenue: ytRevenue, facebookRevenue: fbRevenue, totalViews: ytViews + fbViews };
-  }, [youtubeData, facebookData]);
+    return { 
+      totalRevenue: ytRevenue + fbRevenue + msnRevenue, 
+      youtubeRevenue: ytRevenue, 
+      facebookRevenue: fbRevenue, 
+      msnRevenue: msnRevenue,
+      totalViews: ytViews + fbViews 
+    };
+  }, [youtubeData, facebookData, msnData]);
 
   const trendData = useMemo(() => {
     return months.map(month => {
       const yt = allData[month]?.youtube || [];
       const monthExcluded = excludedPageIds[month] || [];
       const fb = (allData[month]?.facebook || []).filter(d => !monthExcluded.includes(d.pageId));
+      const msn = allData[month]?.msn || [];
+      const ytRev = yt.reduce((sum, d) => sum + d.revenue, 0);
+      const fbRev = fb.reduce((sum, d) => sum + d.revenue, 0);
+      const msnRev = msn.reduce((sum, d) => sum + d.revenue, 0);
       return {
         month: month.replace(' 20', " '"),
-        youtube: yt.reduce((sum, d) => sum + d.revenue, 0),
-        facebook: fb.reduce((sum, d) => sum + d.revenue, 0),
-        total: yt.reduce((sum, d) => sum + d.revenue, 0) + fb.reduce((sum, d) => sum + d.revenue, 0)
+        youtube: ytRev,
+        facebook: fbRev,
+        msn: msnRev,
+        total: ytRev + fbRev + msnRev
       };
     });
   }, [allData, months, excludedPageIds]);
@@ -828,11 +951,16 @@ export default function App() {
     return [...facebookData].sort((a, b) => { const m = sortOrder === 'desc' ? -1 : 1; return m * ((a[sortBy]||0) - (b[sortBy]||0)); });
   }, [facebookData, sortBy, sortOrder]);
 
+  const sortedMsnData = useMemo(() => {
+    return [...msnData].sort((a, b) => b.revenue - a.revenue);
+  }, [msnData]);
+
   const top10Revenue = combinedData.slice(0, 10);
   const platformBreakdown = [
     { name: 'YouTube', value: totals.youtubeRevenue },
-    { name: 'Facebook', value: totals.facebookRevenue }
-  ];
+    { name: 'Facebook', value: totals.facebookRevenue },
+    { name: 'MSN', value: totals.msnRevenue }
+  ].filter(p => p.value > 0);
 
   const formatCurrency = (val) => {
     return `$${Math.round(val).toLocaleString()}`;
@@ -1098,9 +1226,9 @@ export default function App() {
       {/* Drop Zone - Admin Only */}
       {isAdmin && (
         <div style={styles.dropZone(dragOver)} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
-          <div style={styles.dropZoneTitle}>Drop CSV files here</div>
+          <div style={styles.dropZoneTitle}>Drop CSV or Excel files here</div>
           <div style={styles.dropZoneText}>
-            Auto-detects YouTube or Facebook exports • Or use "Fetch Facebook Data" above to pull from API
+            YouTube/Facebook CSVs • MSN Excel reports (.xlsx) • Or use fetch buttons above
           </div>
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '20px' }}>
             {[{ id: 'auto', label: 'Auto-detect' }, { id: 'youtube', label: 'YouTube' }, { id: 'facebook', label: 'Facebook' }].map(platform => (
@@ -1110,7 +1238,7 @@ export default function App() {
             ))}
           </div>
           <label>
-            <input type="file" accept=".csv" multiple onChange={handleFileSelect} style={styles.fileInput} />
+            <input type="file" accept=".csv,.xlsx,.xls" multiple onChange={handleFileSelect} style={styles.fileInput} />
             <span style={styles.uploadBtn}>Browse Files</span>
           </label>
           {uploadStatus && <div style={styles.statusMessage}>{uploadStatus}</div>}
@@ -1123,7 +1251,7 @@ export default function App() {
           { value: formatCurrency(totals.totalRevenue), label: 'Total Revenue' },
           { value: formatCurrency(totals.youtubeRevenue), label: 'YouTube Revenue' },
           { value: formatCurrency(totals.facebookRevenue), label: 'Facebook Revenue' },
-          { value: formatNumber(totals.totalViews), label: 'Total Views' },
+          { value: formatCurrency(totals.msnRevenue), label: 'MSN Revenue', color: MSN_COLOR },
         ].map((metric, i) => (
           <div key={i} style={{ ...styles.metricCard, borderRight: i === 3 ? 'none' : '1px solid #eee' }}>
             <div style={styles.metricLabel}>{metric.label}</div>
@@ -1134,9 +1262,9 @@ export default function App() {
 
       {/* Tabs */}
       <div style={styles.tabs}>
-        {['overview', 'youtube', 'facebook', 'last7days', 'trends'].map(tab => (
+        {['overview', 'youtube', 'facebook', 'msn', 'last7days', 'trends'].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={styles.tab(activeTab === tab)}>
-            {tab === 'last7days' ? 'Last 7 Days' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === 'last7days' ? 'Last 7 Days' : tab === 'msn' ? 'MSN' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
@@ -1155,7 +1283,8 @@ export default function App() {
                   <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 13, fill: '#1a1a1a' }} stroke="#999" />
                   <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px' }} />
                   <Bar dataKey="youtube" stackId="a" fill="#1a1a1a" name="YouTube" />
-                  <Bar dataKey="facebook" stackId="a" fill={ACCENT} name="Facebook" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="facebook" stackId="a" fill={ACCENT} name="Facebook" />
+                  <Bar dataKey="msn" stackId="a" fill={MSN_COLOR} name="MSN" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -1164,13 +1293,14 @@ export default function App() {
               <ResponsiveContainer width="100%" height={280}>
                 <PieChart>
                   <Pie data={platformBreakdown} cx="50%" cy="50%" innerRadius={70} outerRadius={110} dataKey="value" stroke="none">
-                    <Cell fill="#1a1a1a" />
-                    <Cell fill={ACCENT} />
+                    {platformBreakdown.map((entry, index) => (
+                      <Cell key={index} fill={entry.name === 'YouTube' ? '#1a1a1a' : entry.name === 'Facebook' ? ACCENT : MSN_COLOR} />
+                    ))}
                   </Pie>
                   <Tooltip formatter={(value) => formatCurrency(value)} />
                 </PieChart>
               </ResponsiveContainer>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '32px', marginTop: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ width: '12px', height: '12px', background: '#1a1a1a', borderRadius: '2px' }}></div>
                   <span style={{ fontSize: '13px', color: '#666' }}>YouTube</span>
@@ -1179,6 +1309,12 @@ export default function App() {
                   <div style={{ width: '12px', height: '12px', background: ACCENT, borderRadius: '2px' }}></div>
                   <span style={{ fontSize: '13px', color: '#666' }}>Facebook</span>
                 </div>
+                {totals.msnRevenue > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '12px', height: '12px', background: MSN_COLOR, borderRadius: '2px' }}></div>
+                    <span style={{ fontSize: '13px', color: '#666' }}>MSN</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1336,6 +1472,63 @@ export default function App() {
                   <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(facebookData.reduce((s, p) => s + p.revenue, 0))}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(facebookData.reduce((s, p) => s + p.views, 0))}</td>
                   <td style={styles.tdRight}></td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* MSN Tab */}
+      {activeTab === 'msn' && (
+        <div>
+          <h2 style={styles.sectionTitle}>MSN Brands</h2>
+          <p style={styles.sectionSubtitle}>Microsoft Partner Hub revenue for {selectedMonth}</p>
+          
+          {msnData.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
+              <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No MSN data for this month</div>
+              <div style={{ fontSize: '14px', color: '#666' }}>
+                {isAdmin 
+                  ? 'Upload an MSN Excel report (.xlsx) using the drop zone above'
+                  : 'No data available for this month'
+                }
+              </div>
+            </div>
+          )}
+          
+          {msnData.length > 0 && (
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={{ ...styles.th, width: '48px' }}>#</th>
+                  <th style={styles.th}>Brand</th>
+                  <th style={styles.thRight}>Embedded Rev</th>
+                  <th style={styles.thRight}>Watched Rev</th>
+                  <th style={styles.thRight}>Total Revenue</th>
+                  <th style={styles.thRight}>Watch Hours</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedMsnData.map((brand, i) => (
+                  <tr key={i}>
+                    <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
+                    <td style={{ ...styles.td, fontWeight: '500' }}>{brand.brand}</td>
+                    <td style={styles.tdRight}>{formatCurrency(brand.embeddedRevenue)}</td>
+                    <td style={styles.tdRight}>{formatCurrency(brand.watchedRevenue)}</td>
+                    <td style={{ ...styles.tdRight, fontWeight: '600', color: MSN_COLOR }}>{formatCurrency(brand.revenue)}</td>
+                    <td style={styles.tdRight}>{formatNumber(brand.watchHours)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: '#fafafa' }}>
+                  <td style={styles.td}></td>
+                  <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
+                  <td style={styles.tdRight}>{formatCurrency(msnData.reduce((s, b) => s + b.embeddedRevenue, 0))}</td>
+                  <td style={styles.tdRight}>{formatCurrency(msnData.reduce((s, b) => s + b.watchedRevenue, 0))}</td>
+                  <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(msnData.reduce((s, b) => s + b.revenue, 0))}</td>
+                  <td style={styles.tdRight}>{formatNumber(msnData.reduce((s, b) => s + b.watchHours, 0))}</td>
                 </tr>
               </tfoot>
             </table>
@@ -1628,6 +1821,7 @@ export default function App() {
                 <Line type="monotone" dataKey="total" stroke="#1a1a1a" strokeWidth={2} name="Total" dot={{ fill: '#1a1a1a' }} />
                 <Line type="monotone" dataKey="youtube" stroke="#666" strokeWidth={2} name="YouTube" dot={{ fill: '#666' }} />
                 <Line type="monotone" dataKey="facebook" stroke={ACCENT_DARK} strokeWidth={2} name="Facebook" dot={{ fill: ACCENT_DARK }} />
+                <Line type="monotone" dataKey="msn" stroke={MSN_COLOR} strokeWidth={2} name="MSN" dot={{ fill: MSN_COLOR }} />
               </LineChart>
             </ResponsiveContainer>
           ) : (
@@ -1640,6 +1834,7 @@ export default function App() {
                   <th style={styles.th}>Month</th>
                   <th style={styles.thRight}>YouTube</th>
                   <th style={styles.thRight}>Facebook</th>
+                  <th style={styles.thRight}>MSN</th>
                   <th style={styles.thRight}>Total</th>
                 </tr>
               </thead>
@@ -1649,6 +1844,7 @@ export default function App() {
                     <td style={{ ...styles.td, fontWeight: '500' }}>{row.month}</td>
                     <td style={styles.tdRight}>{formatCurrency(row.youtube)}</td>
                     <td style={{ ...styles.tdRight, color: ACCENT_DARK }}>{formatCurrency(row.facebook)}</td>
+                    <td style={{ ...styles.tdRight, color: MSN_COLOR }}>{formatCurrency(row.msn)}</td>
                     <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(row.total)}</td>
                   </tr>
                 ))}
