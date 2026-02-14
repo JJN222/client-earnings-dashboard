@@ -646,8 +646,7 @@ export default function App() {
 
   // Parse MSN Excel file (reads Embedded Video and Watched Video sheets)
   const parseMSNExcel = (arrayBuffer) => {
-    console.log('MSN Parser: Starting parse, arrayBuffer size:', arrayBuffer.byteLength);
-    console.log('MSN Parser: XLSX library loaded:', typeof XLSX !== 'undefined');
+    console.log('MSN Parser: Starting parse');
     
     if (typeof XLSX === 'undefined') {
       console.error('MSN Parser: XLSX library not loaded!');
@@ -656,51 +655,13 @@ export default function App() {
     
     let workbook;
     try {
-      // Use sheetStubs to ensure we read all data even if dimension tag is wrong
-      workbook = XLSX.read(arrayBuffer, { type: 'array', sheetStubs: true });
-      
-      // Fix sheets with incorrect dimensions by forcing a re-calculation
-      workbook.SheetNames.forEach(name => {
-        const sheet = workbook.Sheets[name];
-        if (sheet && sheet['!ref']) {
-          // Delete the ref to force XLSX to recalculate from actual cells
-          const oldRef = sheet['!ref'];
-          delete sheet['!ref'];
-          // Get all cell addresses
-          const cells = Object.keys(sheet).filter(k => !k.startsWith('!'));
-          if (cells.length > 0) {
-            // Find the actual range from cell addresses
-            let maxRow = 0, maxCol = 0, minRow = Infinity, minCol = Infinity;
-            cells.forEach(addr => {
-              const match = addr.match(/([A-Z]+)(\d+)/);
-              if (match) {
-                const col = match[1].split('').reduce((acc, c) => acc * 26 + c.charCodeAt(0) - 64, 0);
-                const row = parseInt(match[2]);
-                maxRow = Math.max(maxRow, row);
-                maxCol = Math.max(maxCol, col);
-                minRow = Math.min(minRow, row);
-                minCol = Math.min(minCol, col);
-              }
-            });
-            // Convert back to A1 notation
-            const colToLetter = (n) => {
-              let s = '';
-              while (n > 0) { s = String.fromCharCode(((n - 1) % 26) + 65) + s; n = Math.floor((n - 1) / 26); }
-              return s;
-            };
-            const newRef = `${colToLetter(minCol)}${minRow}:${colToLetter(maxCol)}${maxRow}`;
-            sheet['!ref'] = newRef;
-            console.log(`MSN Parser: Fixed sheet "${name}" range from ${oldRef} to ${newRef}`);
-          }
-        }
-      });
+      workbook = XLSX.read(arrayBuffer, { type: 'array' });
     } catch (err) {
       console.error('MSN Parser: Error reading workbook:', err);
       return [];
     }
     
     const brandData = {};
-    
     console.log('MSN Parser: Sheet names found:', workbook.SheetNames);
     
     // Helper to process a sheet
@@ -711,60 +672,76 @@ export default function App() {
         return;
       }
       
-      // Get the range of the sheet to ensure we read all data
-      const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
-      console.log(`MSN Parser: Sheet "${sheetName}" range:`, sheet['!ref'], 'rows:', range.e.r + 1);
+      // Read all data from sheet, using raw cell access
+      const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:Z1000');
+      console.log(`MSN Parser: Sheet "${sheetName}" ref: ${sheet['!ref']}, decoded range: rows ${range.s.r}-${range.e.r}`);
       
-      const data = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+      // Convert to JSON, forcing it to read all rows
+      const data = XLSX.utils.sheet_to_json(sheet, { 
+        header: 1, 
+        raw: false, 
+        defval: '',
+        blankrows: true
+      });
+      
       console.log(`MSN Parser: Sheet "${sheetName}" has ${data.length} rows`);
-      console.log('MSN Parser: First 5 rows:', data.slice(0, 5));
+      if (data.length > 0) {
+        console.log('MSN Parser: First 5 rows:', JSON.stringify(data.slice(0, 5)));
+      }
       
-      // Find header row - look for row containing 'Brand (Provider)' 
+      // Find header row by looking for 'Brand (Provider)' in any cell
       let headerIdx = -1;
-      for (let i = 0; i < Math.min(data.length, 10); i++) {
+      let brandCol = -1;
+      let revenueCol = -1;
+      let secondsCol = -1;
+      
+      for (let i = 0; i < Math.min(data.length, 15); i++) {
         const row = data[i];
-        if (row && row.some && row.some(cell => cell && String(cell).includes('Brand (Provider)'))) {
-          headerIdx = i;
-          break;
+        if (!row) continue;
+        
+        for (let j = 0; j < row.length; j++) {
+          const cell = String(row[j] || '');
+          if (cell.includes('Brand (Provider)')) {
+            headerIdx = i;
+            brandCol = j;
+          }
+          if (cell.includes('Content Partner RevShare')) {
+            revenueCol = j;
+          }
+          if (cell.includes('Consumed Video')) {
+            secondsCol = j;
+          }
         }
+        if (headerIdx !== -1) break;
       }
       
-      console.log(`MSN Parser: Header row index: ${headerIdx}`);
+      console.log(`MSN Parser: Header at row ${headerIdx}, columns - brand: ${brandCol}, revenue: ${revenueCol}, seconds: ${secondsCol}`);
       
-      if (headerIdx === -1) {
-        console.log('MSN Parser: Could not find header row with "Brand (Provider)"');
-        return;
-      }
-      
-      const headers = data[headerIdx].map(h => String(h || ''));
-      console.log('MSN Parser: Headers:', headers);
-      
-      const brandCol = headers.findIndex(h => h.includes('Brand (Provider)'));
-      const revenueCol = headers.findIndex(h => h.includes('Content Partner RevShare'));
-      const secondsCol = headers.findIndex(h => h.includes('Consumed Video'));
-      
-      console.log(`MSN Parser: Column indices - brand: ${brandCol}, revenue: ${revenueCol}, seconds: ${secondsCol}`);
-      
-      if (brandCol === -1 || revenueCol === -1) {
-        console.log('MSN Parser: Missing required columns');
+      if (headerIdx === -1 || brandCol === -1 || revenueCol === -1) {
+        console.log('MSN Parser: Could not find required columns');
         return;
       }
       
       // Process data rows
       let rowCount = 0;
+      let sampleLogged = 0;
+      
       for (let i = headerIdx + 1; i < data.length; i++) {
         const row = data[i];
-        if (!row || !row[brandCol]) continue;
+        if (!row) continue;
         
-        const brand = String(row[brandCol]);
-        const revenueRaw = row[revenueCol];
-        const secondsRaw = row[secondsCol];
-        const revenue = parseFloat(revenueRaw) || 0;
-        const seconds = parseFloat(secondsRaw) || 0;
+        const brand = String(row[brandCol] || '').trim();
+        if (!brand || brand === '') continue;
         
-        // Log first few rows to debug
-        if (rowCount < 3) {
-          console.log(`MSN Parser: Row ${i} - brand: "${brand}", revenueRaw: "${revenueRaw}" (${typeof revenueRaw}), revenue: ${revenue}`);
+        const revenueStr = String(row[revenueCol] || '0');
+        const secondsStr = String(row[secondsCol] || '0');
+        const revenue = parseFloat(revenueStr) || 0;
+        const seconds = parseFloat(secondsStr) || 0;
+        
+        // Log first 3 data rows
+        if (sampleLogged < 3) {
+          console.log(`MSN Parser: Data row ${i}: brand="${brand}", revenue="${revenueStr}"→${revenue}, seconds="${secondsStr}"→${seconds}`);
+          sampleLogged++;
         }
         
         if (!brandData[brand]) {
@@ -779,16 +756,17 @@ export default function App() {
         brandData[brand].watchSeconds += seconds;
         rowCount++;
       }
+      
       console.log(`MSN Parser: Processed ${rowCount} data rows from ${sheetName}`);
     };
     
-    // Process both sheets - try different possible names
+    // Process both sheets
     const embeddedSheets = ['Embedded Video Brands & Country', 'Embeded Video Brands & Country'];
     const watchedSheets = ['Watch Video Brands & Country', 'Watched Video Brands & Country'];
     
     for (const name of embeddedSheets) {
       if (workbook.SheetNames.includes(name)) {
-        console.log(`MSN Parser: Found embedded sheet: "${name}"`);
+        console.log(`MSN Parser: Processing embedded sheet: "${name}"`);
         processSheet(name, 'embedded');
         break;
       }
@@ -796,7 +774,7 @@ export default function App() {
     
     for (const name of watchedSheets) {
       if (workbook.SheetNames.includes(name)) {
-        console.log(`MSN Parser: Found watched sheet: "${name}"`);
+        console.log(`MSN Parser: Processing watched sheet: "${name}"`);
         processSheet(name, 'watched');
         break;
       }
@@ -804,9 +782,12 @@ export default function App() {
     
     // Convert to array and calculate totals
     const brandArray = Object.values(brandData);
-    console.log(`MSN Parser: brandData has ${brandArray.length} entries`);
-    if (brandArray.length > 0) {
-      console.log('MSN Parser: First 3 brands before filter:', brandArray.slice(0, 3));
+    console.log(`MSN Parser: Total unique brands: ${brandArray.length}`);
+    
+    if (brandArray.length > 0 && brandArray.length <= 5) {
+      console.log('MSN Parser: All brands:', brandArray);
+    } else if (brandArray.length > 0) {
+      console.log('MSN Parser: First 3 brands:', brandArray.slice(0, 3));
     }
     
     const result = brandArray
@@ -820,7 +801,7 @@ export default function App() {
       .filter(d => d.revenue > 0)
       .sort((a, b) => b.revenue - a.revenue);
     
-    console.log(`MSN Parser: Final result has ${result.length} brands`);
+    console.log(`MSN Parser: Final result: ${result.length} brands with revenue > 0`);
     return result;
   };
 
@@ -927,32 +908,25 @@ export default function App() {
   };
 
   const processFile = useCallback((file) => {
-    console.log('Processing file:', file.name, 'Size:', file.size);
     const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
-    console.log('Is Excel file:', isExcel);
     
     if (isExcel) {
       // Handle MSN Excel files
       const reader = new FileReader();
       reader.onload = (e) => {
-        console.log('FileReader loaded, result size:', e.target.result.byteLength);
         try {
           const parsedData = parseMSNExcel(e.target.result);
-          console.log('Parsed data length:', parsedData.length);
           if (parsedData.length > 0) {
             setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], msn: parsedData } }));
             setUploadStatus(`✓ Loaded ${parsedData.length} MSN brands`);
           } else {
-            setUploadStatus('❌ No MSN data found in file');
+            setUploadStatus('❌ No MSN data found in file - check console for details');
           }
         } catch (err) {
           console.error('Error in parseMSNExcel:', err);
           setUploadStatus(`❌ Error parsing Excel: ${err.message}`);
         }
-        setTimeout(() => setUploadStatus(''), 3000);
-      };
-      reader.onerror = (err) => {
-        console.error('FileReader error:', err);
+        setTimeout(() => setUploadStatus(''), 5000);
       };
       reader.readAsArrayBuffer(file);
     } else {
