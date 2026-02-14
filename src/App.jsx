@@ -654,15 +654,23 @@ export default function App() {
       const sheet = workbook.Sheets[sheetName];
       if (!sheet) return;
       
-      const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-      // Find header row (contains 'Brand (Provider)')
-      let headerIdx = data.findIndex(row => row.includes('Brand (Provider)'));
+      const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      
+      // Find header row - look for row containing 'Brand (Provider)' 
+      let headerIdx = -1;
+      for (let i = 0; i < Math.min(data.length, 10); i++) {
+        const row = data[i];
+        if (row && row.some && row.some(cell => cell && String(cell).includes('Brand (Provider)'))) {
+          headerIdx = i;
+          break;
+        }
+      }
       if (headerIdx === -1) return;
       
-      const headers = data[headerIdx];
-      const brandCol = headers.indexOf('Brand (Provider)');
-      const revenueCol = headers.indexOf('Content Partner RevShare');
-      const secondsCol = headers.indexOf('Consumed Video (seconds)');
+      const headers = data[headerIdx].map(h => String(h || ''));
+      const brandCol = headers.findIndex(h => h.includes('Brand (Provider)'));
+      const revenueCol = headers.findIndex(h => h.includes('Content Partner RevShare'));
+      const secondsCol = headers.findIndex(h => h.includes('Consumed Video'));
       
       if (brandCol === -1 || revenueCol === -1) return;
       
@@ -671,7 +679,7 @@ export default function App() {
         const row = data[i];
         if (!row || !row[brandCol]) continue;
         
-        const brand = row[brandCol];
+        const brand = String(row[brandCol]);
         const revenue = parseFloat(row[revenueCol]) || 0;
         const seconds = parseFloat(row[secondsCol]) || 0;
         
