@@ -920,6 +920,18 @@ export default function App() {
     }
   };
 
+  const clearPlatformData = (platform) => {
+    const platformNames = { youtube: 'YouTube', facebook: 'Facebook', msn: 'MSN', tubi: 'Tubi' };
+    if (confirm(`Clear ${platformNames[platform]} data for ${selectedMonth}?`)) {
+      setAllData(prev => ({
+        ...prev,
+        [selectedMonth]: { ...prev[selectedMonth], [platform]: [] }
+      }));
+      setUploadStatus(`✓ Cleared ${platformNames[platform]} data`);
+      setTimeout(() => setUploadStatus(''), 3000);
+    }
+  };
+
   // ============================================================
   // COMPUTED DATA
   // ============================================================
@@ -1425,8 +1437,17 @@ export default function App() {
       {/* YouTube Tab */}
       {activeTab === 'youtube' && (
         <div>
-          <h2 style={styles.sectionTitle}>YouTube Channels</h2>
-          <p style={styles.sectionSubtitle}>Detailed performance metrics for {selectedMonth}</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+            <div>
+              <h2 style={styles.sectionTitle}>YouTube Channels</h2>
+              <p style={styles.sectionSubtitle}>Detailed performance metrics for {selectedMonth}</p>
+            </div>
+            {isAdmin && youtubeData.length > 0 && (
+              <button onClick={() => clearPlatformData('youtube')} style={{ padding: '8px 16px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
+                Clear YouTube Data
+              </button>
+            )}
+          </div>
           
           {/* Show message when no data */}
           {youtubeData.length === 0 && (
@@ -1497,8 +1518,17 @@ export default function App() {
       {/* Facebook Tab */}
       {activeTab === 'facebook' && (
         <div>
-          <h2 style={styles.sectionTitle}>Facebook Pages</h2>
-          <p style={styles.sectionSubtitle}>Monthly performance for {selectedMonth}</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+            <div>
+              <h2 style={styles.sectionTitle}>Facebook Pages</h2>
+              <p style={styles.sectionSubtitle}>Monthly performance for {selectedMonth}</p>
+            </div>
+            {isAdmin && facebookData.length > 0 && (
+              <button onClick={() => clearPlatformData('facebook')} style={{ padding: '8px 16px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
+                Clear Facebook Data
+              </button>
+            )}
+          </div>
           {facebookData.length === 0 && (
             <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Facebook data for this month</div>
@@ -1549,8 +1579,17 @@ export default function App() {
       {/* MSN Tab */}
       {activeTab === 'msn' && (
         <div>
-          <h2 style={styles.sectionTitle}>MSN Brands</h2>
-          <p style={styles.sectionSubtitle}>Microsoft Partner Hub revenue for {selectedMonth}</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+            <div>
+              <h2 style={styles.sectionTitle}>MSN Brands</h2>
+              <p style={styles.sectionSubtitle}>Microsoft Partner Hub revenue for {selectedMonth}</p>
+            </div>
+            {isAdmin && msnData.length > 0 && (
+              <button onClick={() => clearPlatformData('msn')} style={{ padding: '8px 16px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
+                Clear MSN Data
+              </button>
+            )}
+          </div>
           
           {msnData.length === 0 && (
             <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
@@ -1606,8 +1645,17 @@ export default function App() {
       {/* Tubi Tab */}
       {activeTab === 'tubi' && (
         <div>
-          <h2 style={styles.sectionTitle}>Tubi Programs</h2>
-          <p style={styles.sectionSubtitle}>Tubi streaming revenue for {selectedMonth}</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+            <div>
+              <h2 style={styles.sectionTitle}>Tubi Programs</h2>
+              <p style={styles.sectionSubtitle}>Tubi streaming revenue for {selectedMonth}</p>
+            </div>
+            {isAdmin && tubiData.length > 0 && (
+              <button onClick={() => clearPlatformData('tubi')} style={{ padding: '8px 16px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
+                Clear Tubi Data
+              </button>
+            )}
+          </div>
           
           {tubiData.length === 0 && (
             <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
