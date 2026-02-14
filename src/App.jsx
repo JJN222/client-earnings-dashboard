@@ -674,7 +674,11 @@ export default function App() {
         return;
       }
       
-      const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      // Get the range of the sheet to ensure we read all data
+      const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
+      console.log(`MSN Parser: Sheet "${sheetName}" range:`, sheet['!ref'], 'rows:', range.e.r + 1);
+      
+      const data = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
       console.log(`MSN Parser: Sheet "${sheetName}" has ${data.length} rows`);
       console.log('MSN Parser: First 5 rows:', data.slice(0, 5));
       
