@@ -649,12 +649,19 @@ export default function App() {
     const workbook = XLSX.read(arrayBuffer, { type: 'array' });
     const brandData = {};
     
+    console.log('MSN Parser: Sheet names found:', workbook.SheetNames);
+    
     // Helper to process a sheet
     const processSheet = (sheetName, revenueType) => {
       const sheet = workbook.Sheets[sheetName];
-      if (!sheet) return;
+      if (!sheet) {
+        console.log(`MSN Parser: Sheet "${sheetName}" not found`);
+        return;
+      }
       
       const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      console.log(`MSN Parser: Sheet "${sheetName}" has ${data.length} rows`);
+      console.log('MSN Parser: First 5 rows:', data.slice(0, 5));
       
       // Find header row - look for row containing 'Brand (Provider)' 
       let headerIdx = -1;
@@ -665,16 +672,30 @@ export default function App() {
           break;
         }
       }
-      if (headerIdx === -1) return;
+      
+      console.log(`MSN Parser: Header row index: ${headerIdx}`);
+      
+      if (headerIdx === -1) {
+        console.log('MSN Parser: Could not find header row with "Brand (Provider)"');
+        return;
+      }
       
       const headers = data[headerIdx].map(h => String(h || ''));
+      console.log('MSN Parser: Headers:', headers);
+      
       const brandCol = headers.findIndex(h => h.includes('Brand (Provider)'));
       const revenueCol = headers.findIndex(h => h.includes('Content Partner RevShare'));
       const secondsCol = headers.findIndex(h => h.includes('Consumed Video'));
       
-      if (brandCol === -1 || revenueCol === -1) return;
+      console.log(`MSN Parser: Column indices - brand: ${brandCol}, revenue: ${revenueCol}, seconds: ${secondsCol}`);
+      
+      if (brandCol === -1 || revenueCol === -1) {
+        console.log('MSN Parser: Missing required columns');
+        return;
+      }
       
       // Process data rows
+      let rowCount = 0;
       for (let i = headerIdx + 1; i < data.length; i++) {
         const row = data[i];
         if (!row || !row[brandCol]) continue;
@@ -693,7 +714,9 @@ export default function App() {
           brandData[brand].watchedRevenue += revenue;
         }
         brandData[brand].watchSeconds += seconds;
+        rowCount++;
       }
+      console.log(`MSN Parser: Processed ${rowCount} data rows from ${sheetName}`);
     };
     
     // Process both sheets - try different possible names
@@ -702,6 +725,7 @@ export default function App() {
     
     for (const name of embeddedSheets) {
       if (workbook.SheetNames.includes(name)) {
+        console.log(`MSN Parser: Found embedded sheet: "${name}"`);
         processSheet(name, 'embedded');
         break;
       }
@@ -709,13 +733,14 @@ export default function App() {
     
     for (const name of watchedSheets) {
       if (workbook.SheetNames.includes(name)) {
+        console.log(`MSN Parser: Found watched sheet: "${name}"`);
         processSheet(name, 'watched');
         break;
       }
     }
     
     // Convert to array and calculate totals
-    return Object.values(brandData)
+    const result = Object.values(brandData)
       .map(d => ({
         brand: d.brand,
         embeddedRevenue: Math.round(d.embeddedRevenue * 100) / 100,
@@ -725,6 +750,9 @@ export default function App() {
       }))
       .filter(d => d.revenue > 0)
       .sort((a, b) => b.revenue - a.revenue);
+    
+    console.log(`MSN Parser: Final result has ${result.length} brands`);
+    return result;
   };
 
   const parseYoutubeCSV = (text) => {
