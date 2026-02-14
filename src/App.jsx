@@ -646,7 +646,22 @@ export default function App() {
 
   // Parse MSN Excel file (reads Embedded Video and Watched Video sheets)
   const parseMSNExcel = (arrayBuffer) => {
-    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    console.log('MSN Parser: Starting parse, arrayBuffer size:', arrayBuffer.byteLength);
+    console.log('MSN Parser: XLSX library loaded:', typeof XLSX !== 'undefined');
+    
+    if (typeof XLSX === 'undefined') {
+      console.error('MSN Parser: XLSX library not loaded!');
+      return [];
+    }
+    
+    let workbook;
+    try {
+      workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    } catch (err) {
+      console.error('MSN Parser: Error reading workbook:', err);
+      return [];
+    }
+    
     const brandData = {};
     
     console.log('MSN Parser: Sheet names found:', workbook.SheetNames);
@@ -858,14 +873,18 @@ export default function App() {
   };
 
   const processFile = useCallback((file) => {
+    console.log('Processing file:', file.name, 'Size:', file.size);
     const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+    console.log('Is Excel file:', isExcel);
     
     if (isExcel) {
       // Handle MSN Excel files
       const reader = new FileReader();
       reader.onload = (e) => {
+        console.log('FileReader loaded, result size:', e.target.result.byteLength);
         try {
           const parsedData = parseMSNExcel(e.target.result);
+          console.log('Parsed data length:', parsedData.length);
           if (parsedData.length > 0) {
             setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], msn: parsedData } }));
             setUploadStatus(`✓ Loaded ${parsedData.length} MSN brands`);
@@ -873,9 +892,13 @@ export default function App() {
             setUploadStatus('❌ No MSN data found in file');
           }
         } catch (err) {
+          console.error('Error in parseMSNExcel:', err);
           setUploadStatus(`❌ Error parsing Excel: ${err.message}`);
         }
         setTimeout(() => setUploadStatus(''), 3000);
+      };
+      reader.onerror = (err) => {
+        console.error('FileReader error:', err);
       };
       reader.readAsArrayBuffer(file);
     } else {
