@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 const ACCENT = '#7DD3FC';
 const ACCENT_DARK = '#0EA5E9';
 const MSN_COLOR = '#0078D4'; // Microsoft blue
+const TUBI_COLOR = '#FF5100'; // Tubi orange
 const API_VERSION = 'v24.0';
 const MICRO_DIVISOR = 100000000; // microAmount ÷ this = USD
 
@@ -633,6 +634,7 @@ export default function App() {
   const facebookDataRaw = allData[selectedMonth]?.facebook || [];
   const facebookData = facebookDataRaw.filter(d => !currentExcluded.includes(d.pageId));
   const msnData = allData[selectedMonth]?.msn || [];
+  const tubiData = allData[selectedMonth]?.tubi || [];
   const months = Object.keys(allData).sort((a, b) => {
     const parseMonth = (str) => {
       const [monthName, year] = str.split(' ');
@@ -785,9 +787,38 @@ export default function App() {
 
   const detectFileType = (text) => {
     const firstLine = text.split('\n')[0].toLowerCase();
-    if (firstLine.includes('channel title') || firstLine.includes('estimated partner revenue')) return 'youtube';
+    if (firstLine.includes('channel title') || (firstLine.includes('estimated partner revenue') && !firstLine.includes('program name'))) return 'youtube';
     if (firstLine.includes('page name') || firstLine.includes('page id') || firstLine.includes('qualified views')) return 'facebook';
+    if (firstLine.includes('program name') && firstLine.includes('impressions') && firstLine.includes('ecpm')) return 'tubi';
     return null;
+  };
+
+  // Parse Tubi CSV
+  const parseTubiCSV = (text) => {
+    const lines = text.trim().split('\n');
+    const headers = lines[0].split(',').map(h => h.trim().toUpperCase());
+    
+    const programIdx = headers.findIndex(h => h.includes('PROGRAM NAME'));
+    const impressionsIdx = headers.findIndex(h => h.includes('IMPRESSIONS'));
+    const revenueIdx = headers.findIndex(h => h.includes('ESTIMATED PARTNER EARNINGS'));
+    const ecpmIdx = headers.findIndex(h => h.includes('ECPM'));
+    
+    if (programIdx === -1 || revenueIdx === -1) return [];
+    
+    const data = [];
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',');
+      const program = values[programIdx]?.trim();
+      if (!program) continue;
+      
+      data.push({
+        program: program,
+        impressions: parseInt(values[impressionsIdx]) || 0,
+        revenue: parseFloat(values[revenueIdx]) || 0,
+        ecpm: parseFloat(values[ecpmIdx]) || 0
+      });
+    }
+    return data.sort((a, b) => b.revenue - a.revenue);
   };
 
   const processFile = useCallback((file) => {
@@ -812,7 +843,7 @@ export default function App() {
       };
       reader.readAsArrayBuffer(file);
     } else {
-      // Handle CSV files (YouTube, Facebook)
+      // Handle CSV files (YouTube, Facebook, Tubi)
       const reader = new FileReader();
       reader.onload = (e) => {
         const text = e.target.result;
@@ -833,6 +864,12 @@ export default function App() {
           if (parsedData.length > 0) {
             setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], facebook: parsedData } }));
             setUploadStatus(`✓ Loaded ${parsedData.length} Facebook pages`);
+          }
+        } else if (fileType === 'tubi') {
+          parsedData = parseTubiCSV(text);
+          if (parsedData.length > 0) {
+            setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], tubi: parsedData } }));
+            setUploadStatus(`✓ Loaded ${parsedData.length} Tubi programs`);
           }
         }
         setTimeout(() => setUploadStatus(''), 3000);
@@ -890,39 +927,47 @@ export default function App() {
     const clientMap = new Map();
     youtubeData.forEach(item => {
       const name = item.channel;
-      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, total: 0 });
+      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, tubi: 0, total: 0 });
       clientMap.get(name).youtube = item.revenue;
       clientMap.get(name).total += item.revenue;
     });
     facebookData.forEach(item => {
       const name = item.page;
-      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, total: 0 });
+      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, tubi: 0, total: 0 });
       clientMap.get(name).facebook = item.revenue;
       clientMap.get(name).total += item.revenue;
     });
     msnData.forEach(item => {
       const name = item.brand;
-      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, total: 0 });
+      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, tubi: 0, total: 0 });
       clientMap.get(name).msn = item.revenue;
       clientMap.get(name).total += item.revenue;
     });
+    tubiData.forEach(item => {
+      const name = item.program;
+      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, tubi: 0, total: 0 });
+      clientMap.get(name).tubi = item.revenue;
+      clientMap.get(name).total += item.revenue;
+    });
     return Array.from(clientMap.values()).sort((a, b) => b.total - a.total);
-  }, [youtubeData, facebookData, msnData]);
+  }, [youtubeData, facebookData, msnData, tubiData]);
 
   const totals = useMemo(() => {
     const ytRevenue = youtubeData.reduce((sum, d) => sum + d.revenue, 0);
     const fbRevenue = facebookData.reduce((sum, d) => sum + d.revenue, 0);
     const msnRevenue = msnData.reduce((sum, d) => sum + d.revenue, 0);
+    const tubiRevenue = tubiData.reduce((sum, d) => sum + d.revenue, 0);
     const ytViews = youtubeData.reduce((sum, d) => sum + d.views, 0);
     const fbViews = facebookData.reduce((sum, d) => sum + d.views, 0);
     return { 
-      totalRevenue: ytRevenue + fbRevenue + msnRevenue, 
+      totalRevenue: ytRevenue + fbRevenue + msnRevenue + tubiRevenue, 
       youtubeRevenue: ytRevenue, 
       facebookRevenue: fbRevenue, 
       msnRevenue: msnRevenue,
+      tubiRevenue: tubiRevenue,
       totalViews: ytViews + fbViews 
     };
-  }, [youtubeData, facebookData, msnData]);
+  }, [youtubeData, facebookData, msnData, tubiData]);
 
   const trendData = useMemo(() => {
     return months.map(month => {
@@ -930,15 +975,18 @@ export default function App() {
       const monthExcluded = excludedPageIds[month] || [];
       const fb = (allData[month]?.facebook || []).filter(d => !monthExcluded.includes(d.pageId));
       const msn = allData[month]?.msn || [];
+      const tubi = allData[month]?.tubi || [];
       const ytRev = yt.reduce((sum, d) => sum + d.revenue, 0);
       const fbRev = fb.reduce((sum, d) => sum + d.revenue, 0);
       const msnRev = msn.reduce((sum, d) => sum + d.revenue, 0);
+      const tubiRev = tubi.reduce((sum, d) => sum + d.revenue, 0);
       return {
         month: month.replace(' 20', " '"),
         youtube: ytRev,
         facebook: fbRev,
         msn: msnRev,
-        total: ytRev + fbRev + msnRev
+        tubi: tubiRev,
+        total: ytRev + fbRev + msnRev + tubiRev
       };
     });
   }, [allData, months, excludedPageIds]);
@@ -955,11 +1003,16 @@ export default function App() {
     return [...msnData].sort((a, b) => b.revenue - a.revenue);
   }, [msnData]);
 
+  const sortedTubiData = useMemo(() => {
+    return [...tubiData].sort((a, b) => b.revenue - a.revenue);
+  }, [tubiData]);
+
   const top10Revenue = combinedData.slice(0, 10);
   const platformBreakdown = [
     { name: 'YouTube', value: totals.youtubeRevenue },
     { name: 'Facebook', value: totals.facebookRevenue },
-    { name: 'MSN', value: totals.msnRevenue }
+    { name: 'MSN', value: totals.msnRevenue },
+    { name: 'Tubi', value: totals.tubiRevenue }
   ].filter(p => p.value > 0);
 
   const formatCurrency = (val) => {
@@ -1228,7 +1281,7 @@ export default function App() {
         <div style={styles.dropZone(dragOver)} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
           <div style={styles.dropZoneTitle}>Drop CSV or Excel files here</div>
           <div style={styles.dropZoneText}>
-            YouTube/Facebook CSVs • MSN Excel reports (.xlsx) • Or use fetch buttons above
+            YouTube/Facebook/Tubi CSVs • MSN Excel (.xlsx) • Or use fetch buttons above
           </div>
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '20px' }}>
             {[{ id: 'auto', label: 'Auto-detect' }, { id: 'youtube', label: 'YouTube' }, { id: 'facebook', label: 'Facebook' }].map(platform => (
@@ -1249,22 +1302,23 @@ export default function App() {
       <div style={styles.metricsGrid}>
         {[
           { value: formatCurrency(totals.totalRevenue), label: 'Total Revenue' },
-          { value: formatCurrency(totals.youtubeRevenue), label: 'YouTube Revenue' },
-          { value: formatCurrency(totals.facebookRevenue), label: 'Facebook Revenue' },
-          { value: formatCurrency(totals.msnRevenue), label: 'MSN Revenue', color: MSN_COLOR },
-        ].map((metric, i) => (
-          <div key={i} style={{ ...styles.metricCard, borderRight: i === 3 ? 'none' : '1px solid #eee' }}>
+          { value: formatCurrency(totals.youtubeRevenue), label: 'YouTube' },
+          { value: formatCurrency(totals.facebookRevenue), label: 'Facebook' },
+          { value: formatCurrency(totals.msnRevenue), label: 'MSN', color: MSN_COLOR },
+          { value: formatCurrency(totals.tubiRevenue), label: 'Tubi', color: TUBI_COLOR },
+        ].filter((m, i) => i === 0 || parseFloat(m.value.replace(/[$,]/g, '')) > 0).slice(0, 5).map((metric, i, arr) => (
+          <div key={i} style={{ ...styles.metricCard, borderRight: i === arr.length - 1 ? 'none' : '1px solid #eee' }}>
             <div style={styles.metricLabel}>{metric.label}</div>
-            <div style={styles.metricValue}>{metric.value}</div>
+            <div style={{ ...styles.metricValue, color: metric.color || '#1a1a1a' }}>{metric.value}</div>
           </div>
         ))}
       </div>
 
       {/* Tabs */}
       <div style={styles.tabs}>
-        {['overview', 'youtube', 'facebook', 'msn', 'last7days', 'trends'].map(tab => (
+        {['overview', 'youtube', 'facebook', 'msn', 'tubi', 'last7days', 'trends'].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={styles.tab(activeTab === tab)}>
-            {tab === 'last7days' ? 'Last 7 Days' : tab === 'msn' ? 'MSN' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === 'last7days' ? 'Last 7 Days' : tab === 'msn' ? 'MSN' : tab === 'tubi' ? 'Tubi' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
@@ -1284,7 +1338,8 @@ export default function App() {
                   <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px' }} />
                   <Bar dataKey="youtube" stackId="a" fill="#1a1a1a" name="YouTube" />
                   <Bar dataKey="facebook" stackId="a" fill={ACCENT} name="Facebook" />
-                  <Bar dataKey="msn" stackId="a" fill={MSN_COLOR} name="MSN" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="msn" stackId="a" fill={MSN_COLOR} name="MSN" />
+                  <Bar dataKey="tubi" stackId="a" fill={TUBI_COLOR} name="Tubi" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -1294,25 +1349,31 @@ export default function App() {
                 <PieChart>
                   <Pie data={platformBreakdown} cx="50%" cy="50%" innerRadius={70} outerRadius={110} dataKey="value" stroke="none">
                     {platformBreakdown.map((entry, index) => (
-                      <Cell key={index} fill={entry.name === 'YouTube' ? '#1a1a1a' : entry.name === 'Facebook' ? ACCENT : MSN_COLOR} />
+                      <Cell key={index} fill={entry.name === 'YouTube' ? '#1a1a1a' : entry.name === 'Facebook' ? ACCENT : entry.name === 'MSN' ? MSN_COLOR : TUBI_COLOR} />
                     ))}
                   </Pie>
                   <Tooltip formatter={(value) => formatCurrency(value)} />
                 </PieChart>
               </ResponsiveContainer>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '12px', height: '12px', background: '#1a1a1a', borderRadius: '2px' }}></div>
-                  <span style={{ fontSize: '13px', color: '#666' }}>YouTube</span>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '16px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ width: '10px', height: '10px', background: '#1a1a1a', borderRadius: '2px' }}></div>
+                  <span style={{ fontSize: '12px', color: '#666' }}>YouTube</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '12px', height: '12px', background: ACCENT, borderRadius: '2px' }}></div>
-                  <span style={{ fontSize: '13px', color: '#666' }}>Facebook</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ width: '10px', height: '10px', background: ACCENT, borderRadius: '2px' }}></div>
+                  <span style={{ fontSize: '12px', color: '#666' }}>Facebook</span>
                 </div>
                 {totals.msnRevenue > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ width: '12px', height: '12px', background: MSN_COLOR, borderRadius: '2px' }}></div>
-                    <span style={{ fontSize: '13px', color: '#666' }}>MSN</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ width: '10px', height: '10px', background: MSN_COLOR, borderRadius: '2px' }}></div>
+                    <span style={{ fontSize: '12px', color: '#666' }}>MSN</span>
+                  </div>
+                )}
+                {totals.tubiRevenue > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ width: '10px', height: '10px', background: TUBI_COLOR, borderRadius: '2px' }}></div>
+                    <span style={{ fontSize: '12px', color: '#666' }}>Tubi</span>
                   </div>
                 )}
               </div>
@@ -1328,6 +1389,8 @@ export default function App() {
                 <th style={styles.th}>Client</th>
                 <th style={styles.thRight}>YouTube</th>
                 <th style={styles.thRight}>Facebook</th>
+                <th style={styles.thRight}>MSN</th>
+                <th style={styles.thRight}>Tubi</th>
                 <th style={styles.thRight}>Total</th>
               </tr>
             </thead>
@@ -1338,6 +1401,8 @@ export default function App() {
                   <td style={{ ...styles.td, fontWeight: '500' }}>{client.name}</td>
                   <td style={{ ...styles.tdRight, color: client.youtube > 0 ? '#1a1a1a' : '#ccc' }}>{formatCurrency(client.youtube)}</td>
                   <td style={{ ...styles.tdRight, color: client.facebook > 0 ? ACCENT_DARK : '#ccc' }}>{formatCurrency(client.facebook)}</td>
+                  <td style={{ ...styles.tdRight, color: client.msn > 0 ? MSN_COLOR : '#ccc' }}>{formatCurrency(client.msn)}</td>
+                  <td style={{ ...styles.tdRight, color: client.tubi > 0 ? TUBI_COLOR : '#ccc' }}>{formatCurrency(client.tubi)}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(client.total)}</td>
                 </tr>
               ))}
@@ -1348,6 +1413,8 @@ export default function App() {
                 <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                 <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(totals.youtubeRevenue)}</td>
                 <td style={{ ...styles.tdRight, fontWeight: '600', color: ACCENT_DARK }}>{formatCurrency(totals.facebookRevenue)}</td>
+                <td style={{ ...styles.tdRight, fontWeight: '600', color: MSN_COLOR }}>{formatCurrency(totals.msnRevenue)}</td>
+                <td style={{ ...styles.tdRight, fontWeight: '600', color: TUBI_COLOR }}>{formatCurrency(totals.tubiRevenue)}</td>
                 <td style={{ ...styles.tdRight, fontWeight: '700', fontSize: '16px' }}>{formatCurrency(totals.totalRevenue)}</td>
               </tr>
             </tfoot>
@@ -1529,6 +1596,60 @@ export default function App() {
                   <td style={styles.tdRight}>{formatCurrency(msnData.reduce((s, b) => s + b.watchedRevenue, 0))}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(msnData.reduce((s, b) => s + b.revenue, 0))}</td>
                   <td style={styles.tdRight}>{formatNumber(msnData.reduce((s, b) => s + b.watchHours, 0))}</td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Tubi Tab */}
+      {activeTab === 'tubi' && (
+        <div>
+          <h2 style={styles.sectionTitle}>Tubi Programs</h2>
+          <p style={styles.sectionSubtitle}>Tubi streaming revenue for {selectedMonth}</p>
+          
+          {tubiData.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
+              <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Tubi data for this month</div>
+              <div style={{ fontSize: '14px', color: '#666' }}>
+                {isAdmin 
+                  ? 'Upload a Tubi CSV export using the drop zone above'
+                  : 'No data available for this month'
+                }
+              </div>
+            </div>
+          )}
+          
+          {tubiData.length > 0 && (
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={{ ...styles.th, width: '48px' }}>#</th>
+                  <th style={styles.th}>Program</th>
+                  <th style={styles.thRight}>Impressions</th>
+                  <th style={styles.thRight}>Revenue</th>
+                  <th style={styles.thRight}>eCPM</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedTubiData.map((program, i) => (
+                  <tr key={i}>
+                    <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
+                    <td style={{ ...styles.td, fontWeight: '500' }}>{program.program}</td>
+                    <td style={styles.tdRight}>{formatNumber(program.impressions)}</td>
+                    <td style={{ ...styles.tdRight, fontWeight: '600', color: TUBI_COLOR }}>{formatCurrency(program.revenue)}</td>
+                    <td style={styles.tdRight}>${program.ecpm.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: '#fafafa' }}>
+                  <td style={styles.td}></td>
+                  <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
+                  <td style={styles.tdRight}>{formatNumber(tubiData.reduce((s, p) => s + p.impressions, 0))}</td>
+                  <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(tubiData.reduce((s, p) => s + p.revenue, 0))}</td>
+                  <td style={styles.tdRight}></td>
                 </tr>
               </tfoot>
             </table>
@@ -1822,6 +1943,7 @@ export default function App() {
                 <Line type="monotone" dataKey="youtube" stroke="#666" strokeWidth={2} name="YouTube" dot={{ fill: '#666' }} />
                 <Line type="monotone" dataKey="facebook" stroke={ACCENT_DARK} strokeWidth={2} name="Facebook" dot={{ fill: ACCENT_DARK }} />
                 <Line type="monotone" dataKey="msn" stroke={MSN_COLOR} strokeWidth={2} name="MSN" dot={{ fill: MSN_COLOR }} />
+                <Line type="monotone" dataKey="tubi" stroke={TUBI_COLOR} strokeWidth={2} name="Tubi" dot={{ fill: TUBI_COLOR }} />
               </LineChart>
             </ResponsiveContainer>
           ) : (
@@ -1835,6 +1957,7 @@ export default function App() {
                   <th style={styles.thRight}>YouTube</th>
                   <th style={styles.thRight}>Facebook</th>
                   <th style={styles.thRight}>MSN</th>
+                  <th style={styles.thRight}>Tubi</th>
                   <th style={styles.thRight}>Total</th>
                 </tr>
               </thead>
@@ -1845,6 +1968,7 @@ export default function App() {
                     <td style={styles.tdRight}>{formatCurrency(row.youtube)}</td>
                     <td style={{ ...styles.tdRight, color: ACCENT_DARK }}>{formatCurrency(row.facebook)}</td>
                     <td style={{ ...styles.tdRight, color: MSN_COLOR }}>{formatCurrency(row.msn)}</td>
+                    <td style={{ ...styles.tdRight, color: TUBI_COLOR }}>{formatCurrency(row.tubi)}</td>
                     <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(row.total)}</td>
                   </tr>
                 ))}
