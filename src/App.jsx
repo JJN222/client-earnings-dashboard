@@ -757,8 +757,15 @@ export default function App() {
         if (!row || !row[brandCol]) continue;
         
         const brand = String(row[brandCol]);
-        const revenue = parseFloat(row[revenueCol]) || 0;
-        const seconds = parseFloat(row[secondsCol]) || 0;
+        const revenueRaw = row[revenueCol];
+        const secondsRaw = row[secondsCol];
+        const revenue = parseFloat(revenueRaw) || 0;
+        const seconds = parseFloat(secondsRaw) || 0;
+        
+        // Log first few rows to debug
+        if (rowCount < 3) {
+          console.log(`MSN Parser: Row ${i} - brand: "${brand}", revenueRaw: "${revenueRaw}" (${typeof revenueRaw}), revenue: ${revenue}`);
+        }
         
         if (!brandData[brand]) {
           brandData[brand] = { brand, embeddedRevenue: 0, watchedRevenue: 0, watchSeconds: 0 };
@@ -796,7 +803,13 @@ export default function App() {
     }
     
     // Convert to array and calculate totals
-    const result = Object.values(brandData)
+    const brandArray = Object.values(brandData);
+    console.log(`MSN Parser: brandData has ${brandArray.length} entries`);
+    if (brandArray.length > 0) {
+      console.log('MSN Parser: First 3 brands before filter:', brandArray.slice(0, 3));
+    }
+    
+    const result = brandArray
       .map(d => ({
         brand: d.brand,
         embeddedRevenue: Math.round(d.embeddedRevenue * 100) / 100,
