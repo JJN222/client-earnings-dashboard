@@ -759,6 +759,14 @@ export default function App() {
       let rowCount = 0;
       let sampleLogged = 0;
       
+      // Helper to parse currency/number strings like " $16.00 " or " 168,929 "
+      const parseNumber = (str) => {
+        if (str === null || str === undefined) return 0;
+        // Remove $, spaces, commas
+        const cleaned = String(str).replace(/[$,\s]/g, '');
+        return parseFloat(cleaned) || 0;
+      };
+      
       for (let i = headerIdx + 1; i < data.length; i++) {
         const row = data[i];
         if (!row) continue;
@@ -766,10 +774,10 @@ export default function App() {
         const brand = String(row[brandCol] || '').trim();
         if (!brand || brand === '') continue;
         
-        const revenueStr = String(row[revenueCol] || '0');
-        const secondsStr = String(row[secondsCol] || '0');
-        const revenue = parseFloat(revenueStr) || 0;
-        const seconds = parseFloat(secondsStr) || 0;
+        const revenueStr = row[revenueCol];
+        const secondsStr = row[secondsCol];
+        const revenue = parseNumber(revenueStr);
+        const seconds = parseNumber(secondsStr);
         
         // Log first 3 data rows
         if (sampleLogged < 3) {
