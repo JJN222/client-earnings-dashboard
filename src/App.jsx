@@ -641,7 +641,7 @@ export default function App() {
       const monthIndex = ['January','February','March','April','May','June','July','August','September','October','November','December'].indexOf(monthName);
       return new Date(parseInt(year), monthIndex);
     };
-    return parseMonth(a) - parseMonth(b);
+    return parseMonth(b) - parseMonth(a); // Most recent first
   });
 
   // Parse MSN Excel file (reads Embedded Video and Watched Video sheets)
@@ -1101,8 +1101,60 @@ export default function App() {
     };
   }, [youtubeData, facebookData, msnData, tubiData]);
 
+  // Calculate previous month totals for % change
+  const prevMonthTotals = useMemo(() => {
+    // Get months sorted chronologically (oldest first) to find previous month
+    const chronoMonths = Object.keys(allData).sort((a, b) => {
+      const parseMonth = (str) => {
+        const [monthName, year] = str.split(' ');
+        const monthIndex = ['January','February','March','April','May','June','July','August','September','October','November','December'].indexOf(monthName);
+        return new Date(parseInt(year), monthIndex);
+      };
+      return parseMonth(a) - parseMonth(b);
+    });
+    
+    const currentIdx = chronoMonths.indexOf(selectedMonth);
+    if (currentIdx <= 0) return null; // No previous month
+    
+    const prevMonth = chronoMonths[currentIdx - 1];
+    const prevExcluded = excludedPageIds[prevMonth] || [];
+    const yt = allData[prevMonth]?.youtube || [];
+    const fb = (allData[prevMonth]?.facebook || []).filter(d => !prevExcluded.includes(d.pageId));
+    const msn = allData[prevMonth]?.msn || [];
+    const tubi = allData[prevMonth]?.tubi || [];
+    
+    const ytRevenue = yt.reduce((sum, d) => sum + d.revenue, 0);
+    const fbRevenue = fb.reduce((sum, d) => sum + d.revenue, 0);
+    const msnRevenue = msn.reduce((sum, d) => sum + d.revenue, 0);
+    const tubiRevenue = tubi.reduce((sum, d) => sum + d.revenue, 0);
+    
+    return {
+      totalRevenue: ytRevenue + fbRevenue + msnRevenue + tubiRevenue,
+      youtubeRevenue: ytRevenue,
+      facebookRevenue: fbRevenue,
+      msnRevenue: msnRevenue,
+      tubiRevenue: tubiRevenue
+    };
+  }, [allData, selectedMonth, excludedPageIds]);
+
+  // Helper to calculate % change
+  const getPercentChange = (current, previous) => {
+    if (!previous || previous === 0) return null;
+    return ((current - previous) / previous) * 100;
+  };
+
   const trendData = useMemo(() => {
-    return months.map(month => {
+    // Sort chronologically (oldest first) for trend display
+    const chronoMonths = Object.keys(allData).sort((a, b) => {
+      const parseMonth = (str) => {
+        const [monthName, year] = str.split(' ');
+        const monthIndex = ['January','February','March','April','May','June','July','August','September','October','November','December'].indexOf(monthName);
+        return new Date(parseInt(year), monthIndex);
+      };
+      return parseMonth(a) - parseMonth(b);
+    });
+    
+    return chronoMonths.map(month => {
       const yt = allData[month]?.youtube || [];
       const monthExcluded = excludedPageIds[month] || [];
       const fb = (allData[month]?.facebook || []).filter(d => !monthExcluded.includes(d.pageId));
@@ -1121,7 +1173,7 @@ export default function App() {
         total: ytRev + fbRev + msnRev + tubiRev
       };
     });
-  }, [allData, months, excludedPageIds]);
+  }, [allData, excludedPageIds]);
 
   const sortedYoutubeData = useMemo(() => {
     return [...youtubeData].sort((a, b) => { const m = sortOrder === 'desc' ? -1 : 1; return m * (a[sortBy] - b[sortBy]); });
@@ -1433,17 +1485,30 @@ export default function App() {
       {/* Key Metrics */}
       <div style={styles.metricsGrid}>
         {[
-          { value: formatCurrency(totals.totalRevenue), label: 'Total Revenue' },
-          { value: formatCurrency(totals.youtubeRevenue), label: 'YouTube' },
-          { value: formatCurrency(totals.facebookRevenue), label: 'Facebook' },
-          { value: formatCurrency(totals.msnRevenue), label: 'MSN', color: MSN_COLOR },
-          { value: formatCurrency(totals.tubiRevenue), label: 'Tubi', color: TUBI_COLOR },
-        ].filter((m, i) => i === 0 || parseFloat(m.value.replace(/[$,]/g, '')) > 0).slice(0, 5).map((metric, i, arr) => (
-          <div key={i} style={{ ...styles.metricCard, borderRight: i === arr.length - 1 ? 'none' : '1px solid #eee' }}>
-            <div style={styles.metricLabel}>{metric.label}</div>
-            <div style={{ ...styles.metricValue, color: metric.color || '#1a1a1a' }}>{metric.value}</div>
-          </div>
-        ))}
+          { value: formatCurrency(totals.totalRevenue), label: 'Total Revenue', prev: prevMonthTotals?.totalRevenue, current: totals.totalRevenue },
+          { value: formatCurrency(totals.youtubeRevenue), label: 'YouTube', prev: prevMonthTotals?.youtubeRevenue, current: totals.youtubeRevenue },
+          { value: formatCurrency(totals.facebookRevenue), label: 'Facebook', prev: prevMonthTotals?.facebookRevenue, current: totals.facebookRevenue },
+          { value: formatCurrency(totals.msnRevenue), label: 'MSN', color: MSN_COLOR, prev: prevMonthTotals?.msnRevenue, current: totals.msnRevenue },
+          { value: formatCurrency(totals.tubiRevenue), label: 'Tubi', color: TUBI_COLOR, prev: prevMonthTotals?.tubiRevenue, current: totals.tubiRevenue },
+        ].filter((m, i) => i === 0 || m.current > 0).slice(0, 5).map((metric, i, arr) => {
+          const pctChange = getPercentChange(metric.current, metric.prev);
+          return (
+            <div key={i} style={{ ...styles.metricCard, borderRight: i === arr.length - 1 ? 'none' : '1px solid #eee' }}>
+              <div style={styles.metricLabel}>{metric.label}</div>
+              <div style={{ ...styles.metricValue, color: metric.color || '#1a1a1a' }}>{metric.value}</div>
+              {pctChange !== null && (
+                <div style={{ 
+                  fontSize: '13px', 
+                  fontWeight: '500',
+                  color: pctChange >= 0 ? '#16a34a' : '#dc2626',
+                  marginTop: '4px'
+                }}>
+                  {pctChange >= 0 ? '↑' : '↓'} {Math.abs(pctChange).toFixed(1)}%
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Tabs */}
