@@ -664,6 +664,33 @@ export default function App() {
     const brandData = {};
     console.log('MSN Parser: Sheet names found:', workbook.SheetNames);
     
+    // Helper to get actual range from cell keys (ignoring !ref which may be wrong)
+    const getActualRange = (sheet) => {
+      const cellKeys = Object.keys(sheet).filter(k => !k.startsWith('!'));
+      if (cellKeys.length === 0) return null;
+      
+      let minRow = Infinity, maxRow = 0, minCol = Infinity, maxCol = 0;
+      cellKeys.forEach(key => {
+        const match = key.match(/^([A-Z]+)(\d+)$/);
+        if (match) {
+          const col = match[1].split('').reduce((acc, c) => acc * 26 + c.charCodeAt(0) - 64, 0);
+          const row = parseInt(match[2]);
+          minRow = Math.min(minRow, row);
+          maxRow = Math.max(maxRow, row);
+          minCol = Math.min(minCol, col);
+          maxCol = Math.max(maxCol, col);
+        }
+      });
+      
+      const colToLetter = (n) => {
+        let s = '';
+        while (n > 0) { s = String.fromCharCode(((n - 1) % 26) + 65) + s; n = Math.floor((n - 1) / 26); }
+        return s;
+      };
+      
+      return `${colToLetter(minCol)}${minRow}:${colToLetter(maxCol)}${maxRow}`;
+    };
+    
     // Helper to process a sheet
     const processSheet = (sheetName, revenueType) => {
       const sheet = workbook.Sheets[sheetName];
@@ -672,11 +699,15 @@ export default function App() {
         return;
       }
       
-      // Read all data from sheet, using raw cell access
-      const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:Z1000');
-      console.log(`MSN Parser: Sheet "${sheetName}" ref: ${sheet['!ref']}, decoded range: rows ${range.s.r}-${range.e.r}`);
+      // Fix the range by scanning actual cells
+      const oldRef = sheet['!ref'];
+      const actualRef = getActualRange(sheet);
+      if (actualRef && actualRef !== oldRef) {
+        console.log(`MSN Parser: Fixing sheet range from "${oldRef}" to "${actualRef}"`);
+        sheet['!ref'] = actualRef;
+      }
       
-      // Convert to JSON, forcing it to read all rows
+      // Now convert to JSON with the corrected range
       const data = XLSX.utils.sheet_to_json(sheet, { 
         header: 1, 
         raw: false, 
@@ -684,9 +715,11 @@ export default function App() {
         blankrows: true
       });
       
-      console.log(`MSN Parser: Sheet "${sheetName}" has ${data.length} rows`);
+      console.log(`MSN Parser: Sheet "${sheetName}" now has ${data.length} rows`);
       if (data.length > 0) {
-        console.log('MSN Parser: First 5 rows:', JSON.stringify(data.slice(0, 5)));
+        console.log('MSN Parser: Row 0:', JSON.stringify(data[0]));
+        if (data.length > 3) console.log('MSN Parser: Row 3:', JSON.stringify(data[3]));
+        if (data.length > 4) console.log('MSN Parser: Row 4:', JSON.stringify(data[4]));
       }
       
       // Find header row by looking for 'Brand (Provider)' in any cell
@@ -740,7 +773,7 @@ export default function App() {
         
         // Log first 3 data rows
         if (sampleLogged < 3) {
-          console.log(`MSN Parser: Data row ${i}: brand="${brand}", revenue="${revenueStr}"→${revenue}, seconds="${secondsStr}"→${seconds}`);
+          console.log(`MSN Parser: Data row ${i}: brand="${brand}", revenue="${revenueStr}"→${revenue}`);
           sampleLogged++;
         }
         
@@ -766,7 +799,6 @@ export default function App() {
     
     for (const name of embeddedSheets) {
       if (workbook.SheetNames.includes(name)) {
-        console.log(`MSN Parser: Processing embedded sheet: "${name}"`);
         processSheet(name, 'embedded');
         break;
       }
@@ -774,7 +806,6 @@ export default function App() {
     
     for (const name of watchedSheets) {
       if (workbook.SheetNames.includes(name)) {
-        console.log(`MSN Parser: Processing watched sheet: "${name}"`);
         processSheet(name, 'watched');
         break;
       }
@@ -783,12 +814,6 @@ export default function App() {
     // Convert to array and calculate totals
     const brandArray = Object.values(brandData);
     console.log(`MSN Parser: Total unique brands: ${brandArray.length}`);
-    
-    if (brandArray.length > 0 && brandArray.length <= 5) {
-      console.log('MSN Parser: All brands:', brandArray);
-    } else if (brandArray.length > 0) {
-      console.log('MSN Parser: First 3 brands:', brandArray.slice(0, 3));
-    }
     
     const result = brandArray
       .map(d => ({
