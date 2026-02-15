@@ -1398,7 +1398,7 @@ export default function App() {
           width: '90%',
         }}>
           <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: '700', color: COLORS.black }}>
-            Shorthand Studios
+            SHORTHAND STUDIOS<span style={{ color: COLORS.lightBlue }}>.</span>
           </h1>
           <p style={{ margin: '0 0 32px 0', color: '#666', fontSize: '15px' }}>
             Revenue Dashboard
@@ -1460,7 +1460,7 @@ export default function App() {
       <div style={styles.header}>
         <div>
           <h1 style={styles.title}>
-            Client Earnings<span style={styles.dot}></span>
+            CLIENT EARNINGS<span style={{ color: COLORS.lightBlue }}>.</span>
           </h1>
           <p style={styles.subtitle}>
             {combinedData.length} clients across {platformBreakdown.filter(p => p.value > 0).length} platforms
@@ -2591,7 +2591,7 @@ export default function App() {
 
       {/* Footer */}
       <div style={{ marginTop: '80px', paddingTop: '32px', borderTop: '1px solid #eee', color: '#999', fontSize: '13px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Client Earnings Dashboard</span>
+        <span>CLIENT EARNINGS<span style={{ color: COLORS.lightBlue }}>.</span></span>
         {isAdmin ? (
           <button onClick={() => setIsAdmin(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '13px' }}>
             Exit Admin Mode
