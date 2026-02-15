@@ -4,11 +4,11 @@ import * as XLSX from 'xlsx';
 
 // Brand Colors - Shorthand Studios + Underscore Talent palette
 const COLORS = {
-  brown: '#443025',         // Dark brown
+  brown: '#a67c52',         // Light brown/camel
   gray: '#4c4c4c',          // Dark gray
   navy: '#192c48',          // Dark navy blue
   lightBlue: '#8aafcd',     // Light blue
-  olive: '#907744',         // Olive/tan brown
+  tan: '#c9b99a',           // Tan/sand
   black: '#000000',         // Black
   cream: '#eee8d8',         // Cream (backgrounds only)
 };
@@ -16,15 +16,15 @@ const COLORS = {
 // Platform colors - assigned for maximum visual contrast in charts
 const YOUTUBE_COLOR = COLORS.black;      // #000000 - Black
 const FACEBOOK_COLOR = COLORS.lightBlue; // #8aafcd - Light Blue (high contrast vs black)
-const MSN_COLOR = COLORS.olive;          // #907744 - Olive/tan
+const MSN_COLOR = COLORS.tan;            // #c9b99a - Tan/sand
 const TUBI_COLOR = COLORS.navy;          // #192c48 - Navy
-const PRIME_COLOR = COLORS.brown;        // #443025 - Brown
+const PRIME_COLOR = COLORS.brown;        // #a67c52 - Light brown/camel
 
 // Chart colors for pie/bar variety - ordered for contrast
 const CHART_COLORS = [
   COLORS.black,      // YouTube
   COLORS.lightBlue,  // Facebook
-  COLORS.olive,      // MSN
+  COLORS.tan,        // MSN
   COLORS.navy,       // Tubi
   COLORS.brown,      // Prime
   COLORS.gray,       // Extra
@@ -1336,9 +1336,9 @@ export default function App() {
     container: { minHeight: '100vh', background: '#FFFFFF', fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", color: COLORS.black, padding: '48px 64px', maxWidth: '1400px', margin: '0 auto' },
     header: { marginBottom: '48px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
     title: { fontSize: '48px', fontWeight: '700', margin: 0, letterSpacing: '-1px', display: 'flex', alignItems: 'baseline', gap: '8px' },
-    dot: { width: '12px', height: '12px', background: COLORS.olive, borderRadius: '50%', display: 'inline-block' },
+    dot: { width: '12px', height: '12px', background: COLORS.tan, borderRadius: '50%', display: 'inline-block' },
     subtitle: { color: COLORS.gray, marginTop: '8px', fontSize: '16px' },
-    adminBanner: { background: COLORS.cream, border: `1px solid ${COLORS.olive}`, borderRadius: '8px', padding: '12px 20px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px', flexWrap: 'wrap', gap: '12px' },
+    adminBanner: { background: COLORS.cream, border: `1px solid ${COLORS.tan}`, borderRadius: '8px', padding: '12px 20px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px', flexWrap: 'wrap', gap: '12px' },
     monthSelector: { display: 'flex', gap: '12px', marginBottom: '32px', alignItems: 'center', flexWrap: 'wrap' },
     monthPill: (active) => ({ padding: '8px 16px', borderRadius: '100px', border: active ? 'none' : '1px solid #ddd', background: active ? COLORS.black : 'transparent', color: active ? '#fff' : COLORS.gray, fontWeight: '500', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }),
     addMonthBtn: { padding: '8px 16px', borderRadius: '100px', border: '1px dashed #ddd', background: 'transparent', color: '#999', cursor: 'pointer', fontSize: '14px' },
@@ -1364,7 +1364,7 @@ export default function App() {
     thRight: { textAlign: 'right', padding: '16px 12px', borderBottom: `2px solid ${COLORS.black}`, fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: COLORS.gray },
     td: { padding: '16px 12px', borderBottom: '1px solid #eee' },
     tdRight: { padding: '16px 12px', borderBottom: '1px solid #eee', textAlign: 'right' },
-    rowNumber: { color: COLORS.olive, fontWeight: '500', fontSize: '14px', width: '48px' },
+    rowNumber: { color: COLORS.tan, fontWeight: '500', fontSize: '14px', width: '48px' },
     sortControls: { display: 'flex', gap: '12px', marginBottom: '24px', alignItems: 'center' },
     select: { padding: '10px 16px', borderRadius: '8px', border: '1px solid #ddd', background: '#fff', fontSize: '14px', color: COLORS.black, cursor: 'pointer' },
     modal: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
@@ -1615,7 +1615,7 @@ export default function App() {
           return (
             <div key={i} style={{ ...styles.metricCard, borderRight: i === arr.length - 1 ? 'none' : '1px solid #eee' }}>
               <div style={styles.metricLabel}>{metric.label}</div>
-              <div style={{ ...styles.metricValue, color: metric.color || COLORS.black }}>{metric.value}</div>
+              <div style={styles.metricValue}>{metric.value}</div>
               {pctChange !== null && (
                 <div style={{ 
                   fontSize: '13px', 
