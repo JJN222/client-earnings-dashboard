@@ -3,37 +3,36 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import * as XLSX from 'xlsx';
 
 // Brand Colors - Shorthand Studios + Underscore Talent palette
-// Shorthand: Dark, sophisticated charcoal backgrounds
-// Underscore: Warm sand/beige accents
 const COLORS = {
-  charcoal: '#1a1a1a',      // Primary dark (Shorthand background)
-  sand: '#C9B99A',          // Warm sand/beige (Underscore logo)
-  cream: '#F5F1EB',         // Light cream background
-  warmGray: '#6B5B4F',      // Warm brown-gray
+  brown: '#443025',         // Dark brown
+  gray: '#4c4c4c',          // Dark gray
+  navy: '#192c48',          // Dark navy blue
+  lightBlue: '#8aafcd',     // Light blue
+  olive: '#907744',         // Olive/tan brown
+  black: '#000000',         // Black
+  cream: '#eee8d8',         // Cream (backgrounds only)
 };
 
-// Platform colors - distinct but harmonious with brand
-const YOUTUBE_COLOR = '#2D3436';    // Deep charcoal (Shorthand vibe)
-const FACEBOOK_COLOR = '#4A6FA5';   // Muted steel blue
-const MSN_COLOR = '#6B8F71';        // Sage green (earthy, works with sand)
-const TUBI_COLOR = '#C17767';       // Terracotta/coral (warm accent)
-const PRIME_COLOR = '#B8860B';      // Dark goldenrod (premium, ties to sand)
+// Platform colors
+const YOUTUBE_COLOR = COLORS.black;
+const FACEBOOK_COLOR = COLORS.navy;
+const MSN_COLOR = COLORS.lightBlue;
+const TUBI_COLOR = COLORS.brown;
+const PRIME_COLOR = COLORS.olive;
 
-// Chart colors for pie/bar variety (brand-complementary)
+// Chart colors for pie/bar variety
 const CHART_COLORS = [
-  '#2D3436',  // Charcoal
-  '#4A6FA5',  // Steel blue
-  '#6B8F71',  // Sage
-  '#C17767',  // Terracotta
-  '#B8860B',  // Goldenrod
-  '#8B7355',  // Warm taupe
-  '#5D737E',  // Slate teal
-  '#A67C52',  // Camel
+  COLORS.black,
+  COLORS.navy,
+  COLORS.lightBlue,
+  COLORS.brown,
+  COLORS.olive,
+  COLORS.gray,
 ];
 
 // UI accent colors
-const ACCENT = '#C9B99A';       // Sand (Underscore) - for highlights
-const ACCENT_DARK = '#8B7355';  // Warm taupe - for interactive elements
+const ACCENT = COLORS.lightBlue;
+const ACCENT_DARK = COLORS.navy;
 const API_VERSION = 'v24.0';
 const MICRO_DIVISOR = 100000000; // microAmount ÷ this = USD
 
@@ -1334,44 +1333,44 @@ export default function App() {
   // STYLES
   // ============================================================
   const styles = {
-    container: { minHeight: '100vh', background: '#FFFFFF', fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", color: '#1a1a1a', padding: '48px 64px', maxWidth: '1400px', margin: '0 auto' },
+    container: { minHeight: '100vh', background: '#FFFFFF', fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", color: COLORS.black, padding: '48px 64px', maxWidth: '1400px', margin: '0 auto' },
     header: { marginBottom: '48px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
     title: { fontSize: '48px', fontWeight: '700', margin: 0, letterSpacing: '-1px', display: 'flex', alignItems: 'baseline', gap: '8px' },
-    dot: { width: '12px', height: '12px', background: ACCENT, borderRadius: '50%', display: 'inline-block' },
-    subtitle: { color: '#666', marginTop: '8px', fontSize: '16px' },
-    adminBanner: { background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: '8px', padding: '12px 20px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px', flexWrap: 'wrap', gap: '12px' },
+    dot: { width: '12px', height: '12px', background: COLORS.olive, borderRadius: '50%', display: 'inline-block' },
+    subtitle: { color: COLORS.gray, marginTop: '8px', fontSize: '16px' },
+    adminBanner: { background: COLORS.cream, border: `1px solid ${COLORS.olive}`, borderRadius: '8px', padding: '12px 20px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px', flexWrap: 'wrap', gap: '12px' },
     monthSelector: { display: 'flex', gap: '12px', marginBottom: '32px', alignItems: 'center', flexWrap: 'wrap' },
-    monthPill: (active) => ({ padding: '8px 16px', borderRadius: '100px', border: active ? 'none' : '1px solid #ddd', background: active ? '#1a1a1a' : 'transparent', color: active ? '#fff' : '#666', fontWeight: '500', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }),
+    monthPill: (active) => ({ padding: '8px 16px', borderRadius: '100px', border: active ? 'none' : '1px solid #ddd', background: active ? COLORS.black : 'transparent', color: active ? '#fff' : COLORS.gray, fontWeight: '500', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }),
     addMonthBtn: { padding: '8px 16px', borderRadius: '100px', border: '1px dashed #ddd', background: 'transparent', color: '#999', cursor: 'pointer', fontSize: '14px' },
-    dropZone: (isDragOver) => ({ border: `2px dashed ${isDragOver ? ACCENT_DARK : '#ddd'}`, borderRadius: '12px', padding: '40px', textAlign: 'center', marginBottom: '48px', background: isDragOver ? '#f0f9ff' : '#fafafa', transition: 'all 0.2s' }),
+    dropZone: (isDragOver) => ({ border: `2px dashed ${isDragOver ? COLORS.navy : '#ddd'}`, borderRadius: '12px', padding: '40px', textAlign: 'center', marginBottom: '48px', background: COLORS.cream, transition: 'all 0.2s' }),
     dropZoneTitle: { fontSize: '18px', fontWeight: '600', marginBottom: '8px' },
-    dropZoneText: { color: '#666', fontSize: '14px', marginBottom: '16px' },
+    dropZoneText: { color: COLORS.gray, fontSize: '14px', marginBottom: '16px' },
     fileInput: { display: 'none' },
-    uploadBtn: { padding: '10px 24px', borderRadius: '8px', border: 'none', background: ACCENT, color: '#0c4a6e', fontWeight: '500', cursor: 'pointer', fontSize: '14px' },
-    fetchBtn: { padding: '10px 24px', borderRadius: '8px', border: '2px solid #1877F2', background: '#fff', color: '#1877F2', fontWeight: '600', cursor: 'pointer', fontSize: '14px', display: 'inline-flex', alignItems: 'center', gap: '8px' },
+    uploadBtn: { padding: '10px 24px', borderRadius: '8px', border: 'none', background: COLORS.lightBlue, color: COLORS.navy, fontWeight: '500', cursor: 'pointer', fontSize: '14px' },
+    fetchBtn: { padding: '10px 24px', borderRadius: '8px', border: `2px solid ${COLORS.navy}`, background: '#fff', color: COLORS.navy, fontWeight: '600', cursor: 'pointer', fontSize: '14px', display: 'inline-flex', alignItems: 'center', gap: '8px' },
     fetchBtnDisabled: { padding: '10px 24px', borderRadius: '8px', border: '2px solid #ccc', background: '#f5f5f5', color: '#999', fontWeight: '600', fontSize: '14px', cursor: 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: '8px' },
-    statusMessage: { marginTop: '12px', fontSize: '14px', color: ACCENT_DARK, fontWeight: '500' },
+    statusMessage: { marginTop: '12px', fontSize: '14px', color: COLORS.navy, fontWeight: '500' },
     metricsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0', marginBottom: '48px', borderTop: '1px solid #eee', borderBottom: '1px solid #eee' },
     metricCard: { padding: '32px 24px', borderRight: '1px solid #eee', textAlign: 'center' },
-    metricValue: { fontSize: '36px', fontWeight: '800', color: '#1a1a1a' },
-    metricLabel: { fontSize: '14px', color: '#666', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' },
+    metricValue: { fontSize: '36px', fontWeight: '800', color: COLORS.black },
+    metricLabel: { fontSize: '14px', color: COLORS.gray, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' },
     tabs: { display: 'flex', gap: '8px', marginBottom: '48px' },
-    tab: (active) => ({ padding: '12px 24px', borderRadius: '100px', border: 'none', background: active ? ACCENT : 'transparent', color: active ? '#0c4a6e' : '#666', fontWeight: '500', cursor: 'pointer', fontSize: '14px' }),
+    tab: (active) => ({ padding: '12px 24px', borderRadius: '100px', border: 'none', background: active ? COLORS.lightBlue : 'transparent', color: active ? COLORS.navy : COLORS.gray, fontWeight: '500', cursor: 'pointer', fontSize: '14px' }),
     sectionTitle: { fontSize: '28px', fontWeight: '700', marginBottom: '8px' },
-    sectionSubtitle: { color: '#666', marginBottom: '32px', fontSize: '15px' },
+    sectionSubtitle: { color: COLORS.gray, marginBottom: '32px', fontSize: '15px' },
     chartsRow: { display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '64px', marginBottom: '64px' },
     table: { width: '100%', borderCollapse: 'collapse', fontSize: '14px' },
-    th: { textAlign: 'left', padding: '16px 12px', borderBottom: '2px solid #1a1a1a', fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#666' },
-    thRight: { textAlign: 'right', padding: '16px 12px', borderBottom: '2px solid #1a1a1a', fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#666' },
+    th: { textAlign: 'left', padding: '16px 12px', borderBottom: `2px solid ${COLORS.black}`, fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: COLORS.gray },
+    thRight: { textAlign: 'right', padding: '16px 12px', borderBottom: `2px solid ${COLORS.black}`, fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: COLORS.gray },
     td: { padding: '16px 12px', borderBottom: '1px solid #eee' },
     tdRight: { padding: '16px 12px', borderBottom: '1px solid #eee', textAlign: 'right' },
-    rowNumber: { color: ACCENT, fontWeight: '500', fontSize: '14px', width: '48px' },
+    rowNumber: { color: COLORS.olive, fontWeight: '500', fontSize: '14px', width: '48px' },
     sortControls: { display: 'flex', gap: '12px', marginBottom: '24px', alignItems: 'center' },
-    select: { padding: '10px 16px', borderRadius: '8px', border: '1px solid #ddd', background: '#fff', fontSize: '14px', color: '#1a1a1a', cursor: 'pointer' },
+    select: { padding: '10px 16px', borderRadius: '8px', border: '1px solid #ddd', background: '#fff', fontSize: '14px', color: COLORS.black, cursor: 'pointer' },
     modal: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
     modalContent: { background: '#fff', padding: '32px', borderRadius: '12px', width: '520px', maxHeight: '80vh', overflow: 'auto' },
     input: { width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '16px', marginBottom: '16px', boxSizing: 'border-box' },
-    logBox: { background: '#1a1a1a', color: '#86efac', borderRadius: '8px', padding: '16px', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.6', maxHeight: '300px', overflowY: 'auto', marginBottom: '16px', whiteSpace: 'pre-wrap' },
+    logBox: { background: COLORS.black, color: '#86efac', borderRadius: '8px', padding: '16px', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.6', maxHeight: '300px', overflowY: 'auto', marginBottom: '16px', whiteSpace: 'pre-wrap' },
   };
 
   // ============================================================
@@ -1398,7 +1397,7 @@ export default function App() {
           maxWidth: '400px',
           width: '90%',
         }}>
-          <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: '700', color: '#1a1a1a' }}>
+          <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: '700', color: COLORS.black }}>
             Shorthand Studios
           </h1>
           <p style={{ margin: '0 0 32px 0', color: '#666', fontSize: '15px' }}>
@@ -1540,7 +1539,7 @@ export default function App() {
 
       {/* Fetch Progress */}
       {(fetchingFB || fetchingYT) && fetchProgress && (
-        <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '16px', marginBottom: '24px' }}>
+        <div style={{ background: COLORS.cream, border: `1px solid ${COLORS.lightBlue}`, borderRadius: '8px', padding: '16px', marginBottom: '24px' }}>
           <div style={{ fontSize: '14px', fontWeight: '500', color: '#0369a1', marginBottom: '8px' }}>
             {fetchProgress}
           </div>
@@ -1589,7 +1588,7 @@ export default function App() {
           </div>
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '20px' }}>
             {[{ id: 'auto', label: 'Auto-detect' }, { id: 'youtube', label: 'YouTube' }, { id: 'facebook', label: 'Facebook' }].map(platform => (
-              <button key={platform.id} onClick={() => setSelectedPlatform(platform.id)} style={{ padding: '8px 20px', borderRadius: '100px', border: selectedPlatform === platform.id ? 'none' : '1px solid #ddd', background: selectedPlatform === platform.id ? '#1a1a1a' : '#fff', color: selectedPlatform === platform.id ? '#fff' : '#666', fontWeight: '500', cursor: 'pointer', fontSize: '13px', transition: 'all 0.2s' }}>
+              <button key={platform.id} onClick={() => setSelectedPlatform(platform.id)} style={{ padding: '8px 20px', borderRadius: '100px', border: selectedPlatform === platform.id ? 'none' : '1px solid #ddd', background: selectedPlatform === platform.id ? COLORS.black : '#fff', color: selectedPlatform === platform.id ? '#fff' : COLORS.gray, fontWeight: '500', cursor: 'pointer', fontSize: '13px', transition: 'all 0.2s' }}>
                 {platform.label}
               </button>
             ))}
@@ -1616,7 +1615,7 @@ export default function App() {
           return (
             <div key={i} style={{ ...styles.metricCard, borderRight: i === arr.length - 1 ? 'none' : '1px solid #eee' }}>
               <div style={styles.metricLabel}>{metric.label}</div>
-              <div style={{ ...styles.metricValue, color: metric.color || '#1a1a1a' }}>{metric.value}</div>
+              <div style={{ ...styles.metricValue, color: metric.color || COLORS.black }}>{metric.value}</div>
               {pctChange !== null && (
                 <div style={{ 
                   fontSize: '13px', 
@@ -1652,7 +1651,7 @@ export default function App() {
                 <BarChart data={top10Revenue} layout="vertical" margin={{ left: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#eee" horizontal={true} vertical={false} />
                   <XAxis type="number" tickFormatter={formatCurrency} stroke="#999" fontSize={12} />
-                  <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 13, fill: '#1a1a1a' }} stroke="#999" />
+                  <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 13, fill: COLORS.black }} stroke="#999" />
                   <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px' }} />
                   <Bar dataKey="youtube" stackId="a" fill={YOUTUBE_COLOR} name="YouTube" />
                   <Bar dataKey="facebook" stackId="a" fill={FACEBOOK_COLOR} name="Facebook" />
@@ -1735,7 +1734,7 @@ export default function App() {
               ))}
             </tbody>
             <tfoot>
-              <tr style={{ background: '#fafafa' }}>
+              <tr style={{ background: COLORS.cream }}>
                 <td style={styles.td}></td>
                 <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                 <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(totals.youtubeRevenue)}</td>
@@ -1767,7 +1766,7 @@ export default function App() {
           
           {/* Show message when no data */}
           {youtubeData.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
+            <div style={{ textAlign: 'center', padding: '48px', background: COLORS.cream, borderRadius: '12px', marginBottom: '32px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No YouTube data for this month</div>
               <div style={{ fontSize: '14px', color: '#666' }}>
                 {isAdmin 
@@ -1846,7 +1845,7 @@ export default function App() {
             )}
           </div>
           {facebookData.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
+            <div style={{ textAlign: 'center', padding: '48px', background: COLORS.cream, borderRadius: '12px', marginBottom: '32px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Facebook data for this month</div>
               <div style={{ fontSize: '14px', color: '#666' }}>
                 {isAdmin 
@@ -1879,7 +1878,7 @@ export default function App() {
                 ))}
               </tbody>
               <tfoot>
-                <tr style={{ background: '#fafafa' }}>
+                <tr style={{ background: COLORS.cream }}>
                   <td style={styles.td}></td>
                   <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                   <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(facebookData.reduce((s, p) => s + p.revenue, 0))}</td>
@@ -1908,7 +1907,7 @@ export default function App() {
           </div>
           
           {msnData.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
+            <div style={{ textAlign: 'center', padding: '48px', background: COLORS.cream, borderRadius: '12px', marginBottom: '32px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No MSN data for this month</div>
               <div style={{ fontSize: '14px', color: '#666' }}>
                 {isAdmin 
@@ -1944,7 +1943,7 @@ export default function App() {
                 ))}
               </tbody>
               <tfoot>
-                <tr style={{ background: '#fafafa' }}>
+                <tr style={{ background: COLORS.cream }}>
                   <td style={styles.td}></td>
                   <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                   <td style={styles.tdRight}>{formatCurrency(msnData.reduce((s, b) => s + b.embeddedRevenue, 0))}</td>
@@ -1974,7 +1973,7 @@ export default function App() {
           </div>
           
           {tubiData.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
+            <div style={{ textAlign: 'center', padding: '48px', background: COLORS.cream, borderRadius: '12px', marginBottom: '32px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Tubi data for this month</div>
               <div style={{ fontSize: '14px', color: '#666' }}>
                 {isAdmin 
@@ -2008,7 +2007,7 @@ export default function App() {
                 ))}
               </tbody>
               <tfoot>
-                <tr style={{ background: '#fafafa' }}>
+                <tr style={{ background: COLORS.cream }}>
                   <td style={styles.td}></td>
                   <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                   <td style={styles.tdRight}>{formatNumber(tubiData.reduce((s, p) => s + p.impressions, 0))}</td>
@@ -2037,7 +2036,7 @@ export default function App() {
           </div>
           
           {primeData.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
+            <div style={{ textAlign: 'center', padding: '48px', background: COLORS.cream, borderRadius: '12px', marginBottom: '32px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Prime Video data for this month</div>
               <div style={{ fontSize: '14px', color: '#666' }}>
                 {isAdmin 
@@ -2069,7 +2068,7 @@ export default function App() {
                 ))}
               </tbody>
               <tfoot>
-                <tr style={{ background: '#fafafa' }}>
+                <tr style={{ background: COLORS.cream }}>
                   <td style={styles.td}></td>
                   <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                   <td style={styles.tdRight}>{formatNumber(primeData.reduce((s, t) => s + t.watchHours, 0))}</td>
@@ -2195,19 +2194,19 @@ export default function App() {
               
               {/* 7-Day Summary Cards */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
-                <div style={{ background: '#fafafa', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                <div style={{ background: COLORS.cream, padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>Facebook Revenue</div>
                   <div style={{ fontSize: '24px', fontWeight: '700', color: ACCENT_DARK }}>
                     {formatCurrency(last7DaysData.facebookDaily?.reduce((s, d) => s + d.revenue, 0) || 0)}
                   </div>
                 </div>
-                <div style={{ background: '#fafafa', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                <div style={{ background: COLORS.cream, padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>YouTube Revenue</div>
                   <div style={{ fontSize: '24px', fontWeight: '700', color: '#ff0000' }}>
                     {formatCurrency(last7DaysData.youtubeDaily?.reduce((s, d) => s + d.revenue, 0) || 0)}
                   </div>
                 </div>
-                <div style={{ background: '#fafafa', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                <div style={{ background: COLORS.cream, padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>Total Revenue</div>
                   <div style={{ fontSize: '24px', fontWeight: '700' }}>
                     {formatCurrency(
@@ -2216,7 +2215,7 @@ export default function App() {
                     )}
                   </div>
                 </div>
-                <div style={{ background: '#fafafa', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                <div style={{ background: COLORS.cream, padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>Avg Daily Revenue</div>
                   <div style={{ fontSize: '24px', fontWeight: '700' }}>
                     {formatCurrency(
@@ -2253,7 +2252,7 @@ export default function App() {
                       ))}
                     </tbody>
                     <tfoot>
-                      <tr style={{ background: '#fafafa' }}>
+                      <tr style={{ background: COLORS.cream }}>
                         <td style={styles.td}></td>
                         <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                         <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(last7DaysData.facebook.reduce((s, p) => s + p.revenue, 0))}</td>
@@ -2291,7 +2290,7 @@ export default function App() {
                       ))}
                     </tbody>
                     <tfoot>
-                      <tr style={{ background: '#fafafa' }}>
+                      <tr style={{ background: COLORS.cream }}>
                         <td style={styles.td}></td>
                         <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                         <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(last7DaysData.youtube.reduce((s, c) => s + c.revenue, 0))}</td>
@@ -2304,7 +2303,7 @@ export default function App() {
               )}
             </>
           ) : (
-            <div style={{ textAlign: 'center', padding: '64px', background: '#fafafa', borderRadius: '12px' }}>
+            <div style={{ textAlign: 'center', padding: '64px', background: COLORS.cream, borderRadius: '12px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Last 7 Days data available</div>
               <div style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>
                 Data is auto-fetched daily at 6am Pacific.
@@ -2363,7 +2362,7 @@ export default function App() {
                 <XAxis dataKey="month" stroke="#999" tick={{ fontSize: 13 }} />
                 <YAxis stroke="#999" tickFormatter={formatCurrency} tick={{ fontSize: 12 }} />
                 <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px' }} />
-                <Line type="monotone" dataKey="total" stroke="#1a1a1a" strokeWidth={3} name="Total" dot={{ fill: '#1a1a1a' }} />
+                <Line type="monotone" dataKey="total" stroke={COLORS.black} strokeWidth={3} name="Total" dot={{ fill: COLORS.black }} />
                 <Line type="monotone" dataKey="youtube" stroke={YOUTUBE_COLOR} strokeWidth={2} name="YouTube" dot={{ fill: YOUTUBE_COLOR }} />
                 <Line type="monotone" dataKey="facebook" stroke={FACEBOOK_COLOR} strokeWidth={2} name="Facebook" dot={{ fill: FACEBOOK_COLOR }} />
                 <Line type="monotone" dataKey="msn" stroke={MSN_COLOR} strokeWidth={2} name="MSN" dot={{ fill: MSN_COLOR }} />
