@@ -13,21 +13,21 @@ const COLORS = {
   cream: '#eee8d8',         // Cream (backgrounds only)
 };
 
-// Platform colors
-const YOUTUBE_COLOR = COLORS.black;
-const FACEBOOK_COLOR = COLORS.navy;
-const MSN_COLOR = COLORS.lightBlue;
-const TUBI_COLOR = COLORS.brown;
-const PRIME_COLOR = COLORS.olive;
+// Platform colors - assigned for maximum visual contrast in charts
+const YOUTUBE_COLOR = COLORS.black;      // #000000 - Black
+const FACEBOOK_COLOR = COLORS.lightBlue; // #8aafcd - Light Blue (high contrast vs black)
+const MSN_COLOR = COLORS.olive;          // #907744 - Olive/tan
+const TUBI_COLOR = COLORS.navy;          // #192c48 - Navy
+const PRIME_COLOR = COLORS.brown;        // #443025 - Brown
 
-// Chart colors for pie/bar variety
+// Chart colors for pie/bar variety - ordered for contrast
 const CHART_COLORS = [
-  COLORS.black,
-  COLORS.navy,
-  COLORS.lightBlue,
-  COLORS.brown,
-  COLORS.olive,
-  COLORS.gray,
+  COLORS.black,      // YouTube
+  COLORS.lightBlue,  // Facebook
+  COLORS.olive,      // MSN
+  COLORS.navy,       // Tubi
+  COLORS.brown,      // Prime
+  COLORS.gray,       // Extra
 ];
 
 // UI accent colors
