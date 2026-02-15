@@ -279,7 +279,7 @@ export default function App() {
       sessionStorage.setItem('shs_admin', 'true');
       setLoginPassword('');
       setLoginError('');
-    } else if (loginPassword === 'shsrevenuetracker') {
+    } else if (loginPassword === 'shsrev') {
       // Viewer login
       setIsLoggedIn(true);
       sessionStorage.setItem('shs_logged_in', 'true');
