@@ -4,10 +4,10 @@ import * as XLSX from 'xlsx';
 
 // Brand Colors - Shorthand Studios + Underscore Talent palette
 const COLORS = {
-  brown: '#a67c52',         // Light brown/camel
+  brown: '#8b5e3c',         // Brown (more brown, less camel)
   gray: '#4c4c4c',          // Dark gray
-  navy: '#192c48',          // Dark navy blue
-  lightBlue: '#8aafcd',     // Light blue
+  navy: '#2d4a6f',          // Navy blue (lighter)
+  lightBlue: '#b4def2',     // Light blue
   tan: '#c9b99a',           // Tan/sand
   black: '#000000',         // Black
   cream: '#eee8d8',         // Cream (backgrounds only)
@@ -15,10 +15,10 @@ const COLORS = {
 
 // Platform colors - assigned for maximum visual contrast in charts
 const YOUTUBE_COLOR = COLORS.black;      // #000000 - Black
-const FACEBOOK_COLOR = COLORS.lightBlue; // #8aafcd - Light Blue (high contrast vs black)
+const FACEBOOK_COLOR = COLORS.lightBlue; // #b4def2 - Light Blue
 const MSN_COLOR = COLORS.tan;            // #c9b99a - Tan/sand
-const TUBI_COLOR = COLORS.navy;          // #192c48 - Navy
-const PRIME_COLOR = COLORS.brown;        // #a67c52 - Light brown/camel
+const TUBI_COLOR = COLORS.navy;          // #2d4a6f - Navy (lighter)
+const PRIME_COLOR = COLORS.brown;        // #8b5e3c - Brown
 
 // Chart colors for pie/bar variety - ordered for contrast
 const CHART_COLORS = [
