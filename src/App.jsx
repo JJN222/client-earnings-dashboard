@@ -394,7 +394,7 @@ export default function App() {
   const triggerDataRefresh = async () => {
     if (!isAdmin) return;
     setRefreshingData(true);
-    setUploadStatus('🔄 Refreshing data... This may take a few minutes.');
+    setUploadStatus('Refreshing data... This may take a few minutes.');
     try {
       const response = await fetch('/api/refresh', {
         method: 'POST',
@@ -405,10 +405,10 @@ export default function App() {
       if (result.success) {
         setUploadStatus('✓ Refresh started! Data will update in a few minutes. Reload the page to see new data.');
       } else {
-        setUploadStatus('❌ Refresh failed: ' + (result.error || 'Unknown error'));
+        setUploadStatus('Refresh failed: ' + (result.error || 'Unknown error'));
       }
     } catch (e) {
-      setUploadStatus('❌ Refresh failed: ' + e.message);
+      setUploadStatus('Refresh failed: ' + e.message);
     }
     setTimeout(() => {
       setRefreshingData(false);
@@ -500,7 +500,7 @@ export default function App() {
 
     const dateRange = getMonthDateRange(selectedMonth);
     if (!dateRange) {
-      setUploadStatus('❌ Could not parse month. Use format "January 2026"');
+      setUploadStatus('Could not parse month. Use format "January 2026"');
       return;
     }
 
@@ -510,7 +510,7 @@ export default function App() {
 
     try {
       // Step 1: Get all pages
-      log('📋 Fetching page list...');
+      log('Fetching page list...');
       setFetchProgress('Fetching pages...');
       const pages = await fetchPages(metaConfig.systemToken);
       log(`✓ Found ${pages.length} pages`);
@@ -522,7 +522,7 @@ export default function App() {
 
       // Filter out excluded pages for this month
       const activePages = pages.filter(p => !currentExcluded.includes(p.id));
-      log(`📋 ${activePages.length} active pages (${pages.length - activePages.length} excluded)`);
+      log(`${activePages.length} active pages (${pages.length - activePages.length} excluded)`);
 
       for (let i = 0; i < activePages.length; i++) {
         const page = activePages[i];
@@ -531,7 +531,7 @@ export default function App() {
         const pageToken = page.access_token;
 
         setFetchProgress(`Fetching ${pageName} (${i + 1}/${activePages.length})...`);
-        log(`📊 Fetching ${pageName}...`);
+        log(`Fetching ${pageName}...`);
 
         // Fetch revenue
         const revenueData = await fetchPageInsights(
@@ -593,9 +593,9 @@ export default function App() {
       setTimeout(() => setUploadStatus(''), 5000);
 
     } catch (err) {
-      log(`❌ Error: ${err.message}`);
+      log(`Error: ${err.message}`);
       setFetchProgress('');
-      setUploadStatus(`❌ API error: ${err.message}`);
+      setUploadStatus(`API error: ${err.message}`);
       setTimeout(() => setUploadStatus(''), 5000);
     } finally {
       setFetchingFB(false);
@@ -607,14 +607,14 @@ export default function App() {
   // ============================================================
   const fetchYouTubeMonthlyData = async () => {
     if (!youtubeConnected) {
-      setUploadStatus('❌ YouTube not connected. Go to Last 7 Days tab to connect.');
+      setUploadStatus('YouTube not connected. Go to Last 7 Days tab to connect.');
       setTimeout(() => setUploadStatus(''), 5000);
       return;
     }
 
     const dateRange = getMonthDateRange(selectedMonth);
     if (!dateRange) {
-      setUploadStatus('❌ Could not parse month. Use format "January 2026"');
+      setUploadStatus('Could not parse month. Use format "January 2026"');
       return;
     }
 
@@ -623,7 +623,7 @@ export default function App() {
     const log = (msg) => setFetchLog(prev => [...prev, msg]);
     
     try {
-      log('📺 Fetching YouTube data from API...');
+      log('Fetching YouTube data from API...');
       setFetchProgress('Fetching YouTube channels...');
       
       const response = await fetch('/api/youtube/fetch-month', {
@@ -663,9 +663,9 @@ export default function App() {
       setTimeout(() => setUploadStatus(''), 5000);
 
     } catch (err) {
-      log(`❌ Error: ${err.message}`);
+      log(`Error: ${err.message}`);
       setFetchProgress('');
-      setUploadStatus(`❌ YouTube API error: ${err.message}`);
+      setUploadStatus(`YouTube API error: ${err.message}`);
       setTimeout(() => setUploadStatus(''), 5000);
     } finally {
       setFetchingYT(false);
@@ -1065,11 +1065,11 @@ export default function App() {
             setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], msn: parsedData } }));
             setUploadStatus(`✓ Loaded ${parsedData.length} MSN brands`);
           } else {
-            setUploadStatus('❌ No MSN data found in file - check console for details');
+            setUploadStatus('No MSN data found in file - check console for details');
           }
         } catch (err) {
           console.error('Error in parseMSNExcel:', err);
-          setUploadStatus(`❌ Error parsing Excel: ${err.message}`);
+          setUploadStatus(`Error parsing Excel: ${err.message}`);
         }
         setTimeout(() => setUploadStatus(''), 5000);
       };
@@ -1156,6 +1156,70 @@ export default function App() {
       setAllData(prev => { const d = { ...prev }; delete d[month]; return d; });
       if (selectedMonth === month) setSelectedMonth(months.find(m => m !== month));
     }
+  };
+
+  // Export All Clients table to CSV
+  const exportClientsCSV = () => {
+    const headers = ['Client', 'YouTube', 'Facebook', 'MSN', 'Tubi', 'Prime', 'Total'];
+    const rows = combinedData.map(client => [
+      client.name,
+      client.youtube.toFixed(2),
+      client.facebook.toFixed(2),
+      client.msn.toFixed(2),
+      client.tubi.toFixed(2),
+      client.prime.toFixed(2),
+      client.total.toFixed(2)
+    ]);
+    // Add totals row
+    rows.push([
+      'TOTAL',
+      totals.youtubeRevenue.toFixed(2),
+      totals.facebookRevenue.toFixed(2),
+      totals.msnRevenue.toFixed(2),
+      totals.tubiRevenue.toFixed(2),
+      totals.primeRevenue.toFixed(2),
+      totals.totalRevenue.toFixed(2)
+    ]);
+    
+    const csvContent = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Client_Earnings_${selectedMonth.replace(' ', '_')}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Open in Google Sheets (creates a new sheet with the data)
+  const openInGoogleSheets = () => {
+    const headers = ['Client', 'YouTube', 'Facebook', 'MSN', 'Tubi', 'Prime', 'Total'];
+    const rows = combinedData.map(client => [
+      client.name,
+      client.youtube.toFixed(2),
+      client.facebook.toFixed(2),
+      client.msn.toFixed(2),
+      client.tubi.toFixed(2),
+      client.prime.toFixed(2),
+      client.total.toFixed(2)
+    ]);
+    rows.push([
+      'TOTAL',
+      totals.youtubeRevenue.toFixed(2),
+      totals.facebookRevenue.toFixed(2),
+      totals.msnRevenue.toFixed(2),
+      totals.tubiRevenue.toFixed(2),
+      totals.primeRevenue.toFixed(2),
+      totals.totalRevenue.toFixed(2)
+    ]);
+    
+    // Create CSV and copy to clipboard, then open Google Sheets
+    const csvContent = [headers, ...rows].map(row => row.join('\t')).join('\n');
+    navigator.clipboard.writeText(csvContent).then(() => {
+      window.open('https://sheets.new', '_blank');
+      setUploadStatus('✓ Data copied! Paste (Ctrl+V / Cmd+V) into the new Google Sheet');
+      setTimeout(() => setUploadStatus(''), 5000);
+    });
   };
 
   const clearPlatformData = (platform) => {
@@ -1510,7 +1574,7 @@ export default function App() {
               disabled={fetchingFB}
               style={fetchingFB ? styles.fetchBtnDisabled : styles.fetchBtn}
             >
-              {fetchingFB ? '⏳ Fetching...' : '📘 Fetch Facebook Data'}
+              {fetchingFB ? 'Fetching...' : 'Fetch Facebook Data'}
             </button>
             <button
               onClick={fetchYouTubeMonthlyData}
@@ -1518,7 +1582,7 @@ export default function App() {
               style={(fetchingYT || !youtubeConnected) ? styles.fetchBtnDisabled : { ...styles.fetchBtn, background: '#fff', borderColor: '#ff0000', color: '#ff0000' }}
               title={!youtubeConnected ? 'Connect YouTube first on Last 7 Days tab' : ''}
             >
-              {fetchingYT ? '⏳ Fetching...' : '📺 Fetch YouTube Data'}
+              {fetchingYT ? 'Fetching...' : 'Fetch YouTube Data'}
             </button>
             {!youtubeConnected && (
               <a 
@@ -1540,10 +1604,10 @@ export default function App() {
               </a>
             )}
             <button onClick={() => { setMetaTokenInput(metaConfig.systemToken || ''); setShowMetaSettings(true); }} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
-              ⚙️ API Settings
+              API Settings
             </button>
             <button onClick={() => { loadAllPages(); setShowPageManager(true); }} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
-              📋 Manage Pages {currentExcluded.length > 0 ? `(${currentExcluded.length} excluded)` : ''}
+              Manage Pages {currentExcluded.length > 0 ? `(${currentExcluded.length} excluded)` : ''}
             </button>
             <button onClick={exportData} style={{ ...styles.select, padding: '6px 12px', fontSize: '13px' }}>
               Export Data
@@ -1722,8 +1786,50 @@ export default function App() {
             </div>
           </div>
 
-          <h2 style={styles.sectionTitle}>All Clients</h2>
-          <p style={styles.sectionSubtitle}>Complete revenue breakdown by platform</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+            <div>
+              <h2 style={styles.sectionTitle}>All Clients</h2>
+              <p style={styles.sectionSubtitle}>Complete revenue breakdown by platform</p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button 
+                onClick={exportClientsCSV} 
+                style={{ 
+                  padding: '8px 16px', 
+                  background: '#fff', 
+                  color: COLORS.navy, 
+                  border: `1px solid ${COLORS.navy}`, 
+                  borderRadius: '6px', 
+                  fontSize: '13px', 
+                  cursor: 'pointer', 
+                  fontWeight: '500',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                Download CSV
+              </button>
+              <button 
+                onClick={openInGoogleSheets} 
+                style={{ 
+                  padding: '8px 16px', 
+                  background: '#fff', 
+                  color: '#34a853', 
+                  border: '1px solid #34a853', 
+                  borderRadius: '6px', 
+                  fontSize: '13px', 
+                  cursor: 'pointer', 
+                  fontWeight: '500',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                Open in Google Sheets
+              </button>
+            </div>
+          </div>
           <table style={styles.table}>
             <thead>
               <tr>
@@ -2130,7 +2236,7 @@ export default function App() {
                     gap: '8px'
                   }}
                 >
-                  📺 Connect YouTube
+                  Connect YouTube
                 </a>
               )}
               {isAdmin && youtubeConnected && (
@@ -2152,7 +2258,7 @@ export default function App() {
                     fontWeight: '600'
                   }}
                 >
-                  {refreshingData ? '⏳ Refreshing...' : '🔄 Refresh Data'}
+                  {refreshingData ? 'Refreshing...' : 'Refresh Data'}
                 </button>
               )}
             </div>
@@ -2163,7 +2269,7 @@ export default function App() {
               {/* Daily Revenue Graph - Facebook */}
               {last7DaysData?.facebookDaily?.length > 0 && (
                 <div style={{ marginBottom: '32px' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px', color: '#666' }}>📘 Facebook Daily Revenue</h3>
+                  <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px', color: '#666' }}>Facebook Daily Revenue</h3>
                   <ResponsiveContainer width="100%" height={250}>
                     <LineChart data={last7DaysData.facebookDaily}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
@@ -2188,7 +2294,7 @@ export default function App() {
               {/* Daily Revenue Graph - YouTube */}
               {last7DaysData?.youtubeDaily?.length > 0 && (
                 <div style={{ marginBottom: '32px' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px', color: '#666' }}>📺 YouTube Daily Revenue</h3>
+                  <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px', color: '#666' }}>YouTube Daily Revenue</h3>
                   <ResponsiveContainer width="100%" height={250}>
                     <LineChart data={last7DaysData.youtubeDaily}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
@@ -2247,7 +2353,7 @@ export default function App() {
               {/* Facebook Table */}
               {last7DaysData.facebook?.length > 0 && (
                 <>
-                  <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>📘 Facebook Pages (7 Days)</h3>
+                  <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>Facebook Pages (7 Days)</h3>
                   <table style={{ ...styles.table, marginBottom: '32px' }}>
                     <thead>
                       <tr>
@@ -2285,7 +2391,7 @@ export default function App() {
               {/* YouTube Table */}
               {last7DaysData.youtube?.length > 0 && (
                 <>
-                  <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>📺 YouTube Channels (7 Days)</h3>
+                  <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>YouTube Channels (7 Days)</h3>
                   <table style={styles.table}>
                     <thead>
                       <tr>
@@ -2342,7 +2448,7 @@ export default function App() {
                       fontWeight: '600'
                     }}
                   >
-                    📺 Connect YouTube
+                    Connect YouTube
                   </a>
                 )}
                 {isAdmin && (
@@ -2359,7 +2465,7 @@ export default function App() {
                       fontWeight: '600'
                     }}
                   >
-                    {refreshingData ? '⏳ Refreshing...' : '🔄 Refresh Data Now'}
+                    {refreshingData ? 'Refreshing...' : 'Refresh Data Now'}
                   </button>
                 )}
               </div>
@@ -2466,7 +2572,7 @@ export default function App() {
 
             {loadingPages ? (
               <div style={{ textAlign: 'center', padding: '32px 0', color: '#666' }}>
-                <p style={{ fontSize: '16px', marginBottom: '8px' }}>⏳ Loading pages from Meta API...</p>
+                <p style={{ fontSize: '16px', marginBottom: '8px' }}>Loading pages from Meta API...</p>
               </div>
             ) : allPages.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '32px 0', color: '#666' }}>
