@@ -1191,37 +1191,6 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  // Open in Google Sheets (creates a new sheet with the data)
-  const openInGoogleSheets = () => {
-    const headers = ['Client', 'YouTube', 'Facebook', 'MSN', 'Tubi', 'Prime', 'Total'];
-    const rows = combinedData.map(client => [
-      client.name,
-      client.youtube.toFixed(2),
-      client.facebook.toFixed(2),
-      client.msn.toFixed(2),
-      client.tubi.toFixed(2),
-      client.prime.toFixed(2),
-      client.total.toFixed(2)
-    ]);
-    rows.push([
-      'TOTAL',
-      totals.youtubeRevenue.toFixed(2),
-      totals.facebookRevenue.toFixed(2),
-      totals.msnRevenue.toFixed(2),
-      totals.tubiRevenue.toFixed(2),
-      totals.primeRevenue.toFixed(2),
-      totals.totalRevenue.toFixed(2)
-    ]);
-    
-    // Create CSV and copy to clipboard, then open Google Sheets
-    const csvContent = [headers, ...rows].map(row => row.join('\t')).join('\n');
-    navigator.clipboard.writeText(csvContent).then(() => {
-      window.open('https://sheets.new', '_blank');
-      setUploadStatus('✓ Data copied! Paste (Ctrl+V / Cmd+V) into the new Google Sheet');
-      setTimeout(() => setUploadStatus(''), 5000);
-    });
-  };
-
   const clearPlatformData = (platform) => {
     const platformNames = { youtube: 'YouTube', facebook: 'Facebook', msn: 'MSN', tubi: 'Tubi' };
     if (confirm(`Clear ${platformNames[platform]} data for ${selectedMonth}?`)) {
@@ -1802,31 +1771,10 @@ export default function App() {
                   borderRadius: '6px', 
                   fontSize: '13px', 
                   cursor: 'pointer', 
-                  fontWeight: '500',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
+                  fontWeight: '500'
                 }}
               >
                 Download CSV
-              </button>
-              <button 
-                onClick={openInGoogleSheets} 
-                style={{ 
-                  padding: '8px 16px', 
-                  background: '#fff', 
-                  color: '#34a853', 
-                  border: '1px solid #34a853', 
-                  borderRadius: '6px', 
-                  fontSize: '13px', 
-                  cursor: 'pointer', 
-                  fontWeight: '500',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                Open in Google Sheets
               </button>
             </div>
           </div>
