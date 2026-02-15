@@ -310,7 +310,16 @@ export default function App() {
         ]);
         if (dbData) {
           setAllData(dbData);
-          setSelectedMonth(Object.keys(dbData).sort().pop() || 'January 2026');
+          // Sort chronologically and select most recent
+          const sorted = Object.keys(dbData).sort((a, b) => {
+            const parseMonth = (str) => {
+              const [monthName, year] = str.split(' ');
+              const monthIndex = ['January','February','March','April','May','June','July','August','September','October','November','December'].indexOf(monthName);
+              return new Date(parseInt(year), monthIndex);
+            };
+            return parseMonth(b) - parseMonth(a); // Most recent first
+          });
+          setSelectedMonth(sorted[0] || 'January 2026');
         }
         if (dbMeta) setMetaConfig(dbMeta);
         if (dbExcluded) {
