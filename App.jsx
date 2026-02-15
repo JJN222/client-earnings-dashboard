@@ -2,10 +2,37 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import * as XLSX from 'xlsx';
 
-const ACCENT = '#7DD3FC';
-const ACCENT_DARK = '#0EA5E9';
-const MSN_COLOR = '#0078D4'; // Microsoft blue
-const TUBI_COLOR = '#FF5100'; // Tubi orange
+// Brand Colors - Shorthand Studios + Underscore Talent palette
+const COLORS = {
+  brown: '#8b5e3c',         // Brown (more brown, less camel)
+  gray: '#4c4c4c',          // Dark gray
+  navy: '#2d4a6f',          // Navy blue (lighter)
+  lightBlue: '#b4def2',     // Light blue
+  tan: '#c9b99a',           // Tan/sand
+  black: '#000000',         // Black
+  cream: '#eee8d8',         // Cream (backgrounds only)
+};
+
+// Platform colors - assigned for maximum visual contrast in charts
+const YOUTUBE_COLOR = COLORS.black;      // #000000 - Black
+const FACEBOOK_COLOR = COLORS.lightBlue; // #b4def2 - Light Blue
+const MSN_COLOR = COLORS.tan;            // #c9b99a - Tan/sand
+const TUBI_COLOR = COLORS.navy;          // #2d4a6f - Navy (lighter)
+const PRIME_COLOR = COLORS.brown;        // #8b5e3c - Brown
+
+// Chart colors for pie/bar variety - ordered for contrast
+const CHART_COLORS = [
+  COLORS.black,      // YouTube
+  COLORS.lightBlue,  // Facebook
+  COLORS.tan,        // MSN
+  COLORS.navy,       // Tubi
+  COLORS.brown,      // Prime
+  COLORS.gray,       // Extra
+];
+
+// UI accent colors
+const ACCENT = COLORS.lightBlue;
+const ACCENT_DARK = COLORS.navy;
 const API_VERSION = 'v24.0';
 const MICRO_DIVISOR = 100000000; // microAmount ÷ this = USD
 
@@ -635,6 +662,7 @@ export default function App() {
   const facebookData = facebookDataRaw.filter(d => !currentExcluded.includes(d.pageId));
   const msnData = allData[selectedMonth]?.msn || [];
   const tubiData = allData[selectedMonth]?.tubi || [];
+  const primeData = allData[selectedMonth]?.prime || [];
   const months = Object.keys(allData).sort((a, b) => {
     const parseMonth = (str) => {
       const [monthName, year] = str.split(' ');
@@ -909,7 +937,73 @@ export default function App() {
     if (firstLine.includes('channel title') || (firstLine.includes('estimated partner revenue') && !firstLine.includes('program name'))) return 'youtube';
     if (firstLine.includes('page name') || firstLine.includes('page id') || firstLine.includes('qualified views')) return 'facebook';
     if (firstLine.includes('program name') && firstLine.includes('impressions') && firstLine.includes('ecpm')) return 'tubi';
+    if (firstLine.includes('series title') && firstLine.includes('total accrued royalty')) return 'prime';
     return null;
+  };
+
+  // Parse Prime Video CSV
+  const parsePrimeCSV = (text) => {
+    // Handle CSV with quoted fields
+    const parseCSVLine = (line) => {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          result.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      result.push(current.trim());
+      return result;
+    };
+    
+    const lines = text.trim().split('\n');
+    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase());
+    
+    const seriesTitleIdx = headers.findIndex(h => h.includes('series title'));
+    const titleNameIdx = headers.findIndex(h => h.includes('title name'));
+    const revenueIdx = headers.findIndex(h => h.includes('total accrued royalty'));
+    const hoursIdx = headers.findIndex(h => h.includes('duration streamed hours'));
+    
+    if (revenueIdx === -1) return [];
+    
+    // Aggregate by series title (or title name if series title is empty)
+    const titleData = {};
+    
+    for (let i = 1; i < lines.length; i++) {
+      const values = parseCSVLine(lines[i]);
+      
+      // Use series title, fall back to title name
+      let title = values[seriesTitleIdx]?.trim() || '';
+      if (!title && titleNameIdx !== -1) {
+        title = values[titleNameIdx]?.trim() || '';
+      }
+      if (!title) continue;
+      
+      const revenue = parseFloat(values[revenueIdx]) || 0;
+      const hours = parseFloat(values[hoursIdx]) || 0;
+      
+      if (!titleData[title]) {
+        titleData[title] = { title, revenue: 0, watchHours: 0 };
+      }
+      titleData[title].revenue += revenue;
+      titleData[title].watchHours += hours;
+    }
+    
+    return Object.values(titleData)
+      .map(d => ({
+        title: d.title,
+        revenue: Math.round(d.revenue * 100) / 100,
+        watchHours: Math.round(d.watchHours * 10) / 10
+      }))
+      .filter(d => d.revenue > 0)
+      .sort((a, b) => b.revenue - a.revenue);
   };
 
   // Parse Tubi CSV
@@ -991,6 +1085,12 @@ export default function App() {
             setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], tubi: parsedData } }));
             setUploadStatus(`✓ Loaded ${parsedData.length} Tubi programs`);
           }
+        } else if (fileType === 'prime') {
+          parsedData = parsePrimeCSV(text);
+          if (parsedData.length > 0) {
+            setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], prime: parsedData } }));
+            setUploadStatus(`✓ Loaded ${parsedData.length} Prime Video titles`);
+          }
         }
         setTimeout(() => setUploadStatus(''), 3000);
       };
@@ -1059,47 +1159,55 @@ export default function App() {
     const clientMap = new Map();
     youtubeData.forEach(item => {
       const name = item.channel;
-      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, tubi: 0, total: 0 });
+      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, tubi: 0, prime: 0, total: 0 });
       clientMap.get(name).youtube = item.revenue;
       clientMap.get(name).total += item.revenue;
     });
     facebookData.forEach(item => {
       const name = item.page;
-      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, tubi: 0, total: 0 });
+      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, tubi: 0, prime: 0, total: 0 });
       clientMap.get(name).facebook = item.revenue;
       clientMap.get(name).total += item.revenue;
     });
     msnData.forEach(item => {
       const name = item.brand;
-      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, tubi: 0, total: 0 });
+      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, tubi: 0, prime: 0, total: 0 });
       clientMap.get(name).msn = item.revenue;
       clientMap.get(name).total += item.revenue;
     });
     tubiData.forEach(item => {
       const name = item.program;
-      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, tubi: 0, total: 0 });
+      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, tubi: 0, prime: 0, total: 0 });
       clientMap.get(name).tubi = item.revenue;
       clientMap.get(name).total += item.revenue;
     });
+    primeData.forEach(item => {
+      const name = item.title;
+      if (!clientMap.has(name)) clientMap.set(name, { name, youtube: 0, facebook: 0, msn: 0, tubi: 0, prime: 0, total: 0 });
+      clientMap.get(name).prime = item.revenue;
+      clientMap.get(name).total += item.revenue;
+    });
     return Array.from(clientMap.values()).sort((a, b) => b.total - a.total);
-  }, [youtubeData, facebookData, msnData, tubiData]);
+  }, [youtubeData, facebookData, msnData, tubiData, primeData]);
 
   const totals = useMemo(() => {
     const ytRevenue = youtubeData.reduce((sum, d) => sum + d.revenue, 0);
     const fbRevenue = facebookData.reduce((sum, d) => sum + d.revenue, 0);
     const msnRevenue = msnData.reduce((sum, d) => sum + d.revenue, 0);
     const tubiRevenue = tubiData.reduce((sum, d) => sum + d.revenue, 0);
+    const primeRevenue = primeData.reduce((sum, d) => sum + d.revenue, 0);
     const ytViews = youtubeData.reduce((sum, d) => sum + d.views, 0);
     const fbViews = facebookData.reduce((sum, d) => sum + d.views, 0);
     return { 
-      totalRevenue: ytRevenue + fbRevenue + msnRevenue + tubiRevenue, 
+      totalRevenue: ytRevenue + fbRevenue + msnRevenue + tubiRevenue + primeRevenue, 
       youtubeRevenue: ytRevenue, 
       facebookRevenue: fbRevenue, 
       msnRevenue: msnRevenue,
       tubiRevenue: tubiRevenue,
+      primeRevenue: primeRevenue,
       totalViews: ytViews + fbViews 
     };
-  }, [youtubeData, facebookData, msnData, tubiData]);
+  }, [youtubeData, facebookData, msnData, tubiData, primeData]);
 
   // Calculate previous month totals for % change
   const prevMonthTotals = useMemo(() => {
@@ -1122,18 +1230,21 @@ export default function App() {
     const fb = (allData[prevMonth]?.facebook || []).filter(d => !prevExcluded.includes(d.pageId));
     const msn = allData[prevMonth]?.msn || [];
     const tubi = allData[prevMonth]?.tubi || [];
+    const prime = allData[prevMonth]?.prime || [];
     
     const ytRevenue = yt.reduce((sum, d) => sum + d.revenue, 0);
     const fbRevenue = fb.reduce((sum, d) => sum + d.revenue, 0);
     const msnRevenue = msn.reduce((sum, d) => sum + d.revenue, 0);
     const tubiRevenue = tubi.reduce((sum, d) => sum + d.revenue, 0);
+    const primeRevenue = prime.reduce((sum, d) => sum + d.revenue, 0);
     
     return {
-      totalRevenue: ytRevenue + fbRevenue + msnRevenue + tubiRevenue,
+      totalRevenue: ytRevenue + fbRevenue + msnRevenue + tubiRevenue + primeRevenue,
       youtubeRevenue: ytRevenue,
       facebookRevenue: fbRevenue,
       msnRevenue: msnRevenue,
-      tubiRevenue: tubiRevenue
+      tubiRevenue: tubiRevenue,
+      primeRevenue: primeRevenue
     };
   }, [allData, selectedMonth, excludedPageIds]);
 
@@ -1160,17 +1271,20 @@ export default function App() {
       const fb = (allData[month]?.facebook || []).filter(d => !monthExcluded.includes(d.pageId));
       const msn = allData[month]?.msn || [];
       const tubi = allData[month]?.tubi || [];
+      const prime = allData[month]?.prime || [];
       const ytRev = yt.reduce((sum, d) => sum + d.revenue, 0);
       const fbRev = fb.reduce((sum, d) => sum + d.revenue, 0);
       const msnRev = msn.reduce((sum, d) => sum + d.revenue, 0);
       const tubiRev = tubi.reduce((sum, d) => sum + d.revenue, 0);
+      const primeRev = prime.reduce((sum, d) => sum + d.revenue, 0);
       return {
         month: month.replace(' 20', " '"),
         youtube: ytRev,
         facebook: fbRev,
         msn: msnRev,
         tubi: tubiRev,
-        total: ytRev + fbRev + msnRev + tubiRev
+        prime: primeRev,
+        total: ytRev + fbRev + msnRev + tubiRev + primeRev
       };
     });
   }, [allData, excludedPageIds]);
@@ -1191,12 +1305,17 @@ export default function App() {
     return [...tubiData].sort((a, b) => b.revenue - a.revenue);
   }, [tubiData]);
 
+  const sortedPrimeData = useMemo(() => {
+    return [...primeData].sort((a, b) => b.revenue - a.revenue);
+  }, [primeData]);
+
   const top10Revenue = combinedData.slice(0, 10);
   const platformBreakdown = [
     { name: 'YouTube', value: totals.youtubeRevenue },
     { name: 'Facebook', value: totals.facebookRevenue },
     { name: 'MSN', value: totals.msnRevenue },
-    { name: 'Tubi', value: totals.tubiRevenue }
+    { name: 'Tubi', value: totals.tubiRevenue },
+    { name: 'Prime', value: totals.primeRevenue }
   ].filter(p => p.value > 0);
 
   const formatCurrency = (val) => {
@@ -1214,44 +1333,44 @@ export default function App() {
   // STYLES
   // ============================================================
   const styles = {
-    container: { minHeight: '100vh', background: '#FFFFFF', fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", color: '#1a1a1a', padding: '48px 64px', maxWidth: '1400px', margin: '0 auto' },
+    container: { minHeight: '100vh', background: '#FFFFFF', fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", color: COLORS.black, padding: '48px 64px', maxWidth: '1400px', margin: '0 auto' },
     header: { marginBottom: '48px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
     title: { fontSize: '48px', fontWeight: '700', margin: 0, letterSpacing: '-1px', display: 'flex', alignItems: 'baseline', gap: '8px' },
-    dot: { width: '12px', height: '12px', background: ACCENT, borderRadius: '50%', display: 'inline-block' },
-    subtitle: { color: '#666', marginTop: '8px', fontSize: '16px' },
-    adminBanner: { background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: '8px', padding: '12px 20px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px', flexWrap: 'wrap', gap: '12px' },
+    dot: { width: '12px', height: '12px', background: COLORS.tan, borderRadius: '50%', display: 'inline-block' },
+    subtitle: { color: COLORS.gray, marginTop: '8px', fontSize: '16px' },
+    adminBanner: { background: COLORS.cream, border: `1px solid ${COLORS.tan}`, borderRadius: '8px', padding: '12px 20px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px', flexWrap: 'wrap', gap: '12px' },
     monthSelector: { display: 'flex', gap: '12px', marginBottom: '32px', alignItems: 'center', flexWrap: 'wrap' },
-    monthPill: (active) => ({ padding: '8px 16px', borderRadius: '100px', border: active ? 'none' : '1px solid #ddd', background: active ? '#1a1a1a' : 'transparent', color: active ? '#fff' : '#666', fontWeight: '500', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }),
+    monthPill: (active) => ({ padding: '8px 16px', borderRadius: '100px', border: active ? 'none' : '1px solid #ddd', background: active ? COLORS.black : 'transparent', color: active ? '#fff' : COLORS.gray, fontWeight: '500', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }),
     addMonthBtn: { padding: '8px 16px', borderRadius: '100px', border: '1px dashed #ddd', background: 'transparent', color: '#999', cursor: 'pointer', fontSize: '14px' },
-    dropZone: (isDragOver) => ({ border: `2px dashed ${isDragOver ? ACCENT_DARK : '#ddd'}`, borderRadius: '12px', padding: '40px', textAlign: 'center', marginBottom: '48px', background: isDragOver ? '#f0f9ff' : '#fafafa', transition: 'all 0.2s' }),
+    dropZone: (isDragOver) => ({ border: `2px dashed ${isDragOver ? COLORS.navy : '#ddd'}`, borderRadius: '12px', padding: '40px', textAlign: 'center', marginBottom: '48px', background: COLORS.cream, transition: 'all 0.2s' }),
     dropZoneTitle: { fontSize: '18px', fontWeight: '600', marginBottom: '8px' },
-    dropZoneText: { color: '#666', fontSize: '14px', marginBottom: '16px' },
+    dropZoneText: { color: COLORS.gray, fontSize: '14px', marginBottom: '16px' },
     fileInput: { display: 'none' },
-    uploadBtn: { padding: '10px 24px', borderRadius: '8px', border: 'none', background: ACCENT, color: '#0c4a6e', fontWeight: '500', cursor: 'pointer', fontSize: '14px' },
-    fetchBtn: { padding: '10px 24px', borderRadius: '8px', border: '2px solid #1877F2', background: '#fff', color: '#1877F2', fontWeight: '600', cursor: 'pointer', fontSize: '14px', display: 'inline-flex', alignItems: 'center', gap: '8px' },
+    uploadBtn: { padding: '10px 24px', borderRadius: '8px', border: 'none', background: COLORS.lightBlue, color: COLORS.navy, fontWeight: '500', cursor: 'pointer', fontSize: '14px' },
+    fetchBtn: { padding: '10px 24px', borderRadius: '8px', border: `2px solid ${COLORS.navy}`, background: '#fff', color: COLORS.navy, fontWeight: '600', cursor: 'pointer', fontSize: '14px', display: 'inline-flex', alignItems: 'center', gap: '8px' },
     fetchBtnDisabled: { padding: '10px 24px', borderRadius: '8px', border: '2px solid #ccc', background: '#f5f5f5', color: '#999', fontWeight: '600', fontSize: '14px', cursor: 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: '8px' },
-    statusMessage: { marginTop: '12px', fontSize: '14px', color: ACCENT_DARK, fontWeight: '500' },
+    statusMessage: { marginTop: '12px', fontSize: '14px', color: COLORS.navy, fontWeight: '500' },
     metricsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0', marginBottom: '48px', borderTop: '1px solid #eee', borderBottom: '1px solid #eee' },
     metricCard: { padding: '32px 24px', borderRight: '1px solid #eee', textAlign: 'center' },
-    metricValue: { fontSize: '36px', fontWeight: '800', color: '#1a1a1a' },
-    metricLabel: { fontSize: '14px', color: '#666', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' },
+    metricValue: { fontSize: '36px', fontWeight: '800', color: COLORS.black },
+    metricLabel: { fontSize: '14px', color: COLORS.gray, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' },
     tabs: { display: 'flex', gap: '8px', marginBottom: '48px' },
-    tab: (active) => ({ padding: '12px 24px', borderRadius: '100px', border: 'none', background: active ? ACCENT : 'transparent', color: active ? '#0c4a6e' : '#666', fontWeight: '500', cursor: 'pointer', fontSize: '14px' }),
+    tab: (active) => ({ padding: '12px 24px', borderRadius: '100px', border: 'none', background: active ? COLORS.lightBlue : 'transparent', color: active ? COLORS.navy : COLORS.gray, fontWeight: '500', cursor: 'pointer', fontSize: '14px' }),
     sectionTitle: { fontSize: '28px', fontWeight: '700', marginBottom: '8px' },
-    sectionSubtitle: { color: '#666', marginBottom: '32px', fontSize: '15px' },
+    sectionSubtitle: { color: COLORS.gray, marginBottom: '32px', fontSize: '15px' },
     chartsRow: { display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '64px', marginBottom: '64px' },
     table: { width: '100%', borderCollapse: 'collapse', fontSize: '14px' },
-    th: { textAlign: 'left', padding: '16px 12px', borderBottom: '2px solid #1a1a1a', fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#666' },
-    thRight: { textAlign: 'right', padding: '16px 12px', borderBottom: '2px solid #1a1a1a', fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#666' },
+    th: { textAlign: 'left', padding: '16px 12px', borderBottom: `2px solid ${COLORS.black}`, fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: COLORS.gray },
+    thRight: { textAlign: 'right', padding: '16px 12px', borderBottom: `2px solid ${COLORS.black}`, fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: COLORS.gray },
     td: { padding: '16px 12px', borderBottom: '1px solid #eee' },
     tdRight: { padding: '16px 12px', borderBottom: '1px solid #eee', textAlign: 'right' },
-    rowNumber: { color: ACCENT, fontWeight: '500', fontSize: '14px', width: '48px' },
+    rowNumber: { color: COLORS.tan, fontWeight: '500', fontSize: '14px', width: '48px' },
     sortControls: { display: 'flex', gap: '12px', marginBottom: '24px', alignItems: 'center' },
-    select: { padding: '10px 16px', borderRadius: '8px', border: '1px solid #ddd', background: '#fff', fontSize: '14px', color: '#1a1a1a', cursor: 'pointer' },
+    select: { padding: '10px 16px', borderRadius: '8px', border: '1px solid #ddd', background: '#fff', fontSize: '14px', color: COLORS.black, cursor: 'pointer' },
     modal: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
     modalContent: { background: '#fff', padding: '32px', borderRadius: '12px', width: '520px', maxHeight: '80vh', overflow: 'auto' },
     input: { width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '16px', marginBottom: '16px', boxSizing: 'border-box' },
-    logBox: { background: '#1a1a1a', color: '#86efac', borderRadius: '8px', padding: '16px', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.6', maxHeight: '300px', overflowY: 'auto', marginBottom: '16px', whiteSpace: 'pre-wrap' },
+    logBox: { background: COLORS.black, color: '#86efac', borderRadius: '8px', padding: '16px', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.6', maxHeight: '300px', overflowY: 'auto', marginBottom: '16px', whiteSpace: 'pre-wrap' },
   };
 
   // ============================================================
@@ -1278,7 +1397,7 @@ export default function App() {
           maxWidth: '400px',
           width: '90%',
         }}>
-          <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: '700', color: '#1a1a1a' }}>
+          <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: '700', color: COLORS.black }}>
             Shorthand Studios
           </h1>
           <p style={{ margin: '0 0 32px 0', color: '#666', fontSize: '15px' }}>
@@ -1420,7 +1539,7 @@ export default function App() {
 
       {/* Fetch Progress */}
       {(fetchingFB || fetchingYT) && fetchProgress && (
-        <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '16px', marginBottom: '24px' }}>
+        <div style={{ background: COLORS.cream, border: `1px solid ${COLORS.lightBlue}`, borderRadius: '8px', padding: '16px', marginBottom: '24px' }}>
           <div style={{ fontSize: '14px', fontWeight: '500', color: '#0369a1', marginBottom: '8px' }}>
             {fetchProgress}
           </div>
@@ -1465,11 +1584,11 @@ export default function App() {
         <div style={styles.dropZone(dragOver)} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
           <div style={styles.dropZoneTitle}>Drop CSV or Excel files here</div>
           <div style={styles.dropZoneText}>
-            YouTube/Facebook/Tubi CSVs • MSN Excel (.xlsx) • Or use fetch buttons above
+            YouTube/Facebook/Tubi/Prime CSVs • MSN Excel (.xlsx) • Or use fetch buttons above
           </div>
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '20px' }}>
             {[{ id: 'auto', label: 'Auto-detect' }, { id: 'youtube', label: 'YouTube' }, { id: 'facebook', label: 'Facebook' }].map(platform => (
-              <button key={platform.id} onClick={() => setSelectedPlatform(platform.id)} style={{ padding: '8px 20px', borderRadius: '100px', border: selectedPlatform === platform.id ? 'none' : '1px solid #ddd', background: selectedPlatform === platform.id ? '#1a1a1a' : '#fff', color: selectedPlatform === platform.id ? '#fff' : '#666', fontWeight: '500', cursor: 'pointer', fontSize: '13px', transition: 'all 0.2s' }}>
+              <button key={platform.id} onClick={() => setSelectedPlatform(platform.id)} style={{ padding: '8px 20px', borderRadius: '100px', border: selectedPlatform === platform.id ? 'none' : '1px solid #ddd', background: selectedPlatform === platform.id ? COLORS.black : '#fff', color: selectedPlatform === platform.id ? '#fff' : COLORS.gray, fontWeight: '500', cursor: 'pointer', fontSize: '13px', transition: 'all 0.2s' }}>
                 {platform.label}
               </button>
             ))}
@@ -1490,12 +1609,13 @@ export default function App() {
           { value: formatCurrency(totals.facebookRevenue), label: 'Facebook', prev: prevMonthTotals?.facebookRevenue, current: totals.facebookRevenue },
           { value: formatCurrency(totals.msnRevenue), label: 'MSN', color: MSN_COLOR, prev: prevMonthTotals?.msnRevenue, current: totals.msnRevenue },
           { value: formatCurrency(totals.tubiRevenue), label: 'Tubi', color: TUBI_COLOR, prev: prevMonthTotals?.tubiRevenue, current: totals.tubiRevenue },
-        ].filter((m, i) => i === 0 || m.current > 0).slice(0, 5).map((metric, i, arr) => {
+          { value: formatCurrency(totals.primeRevenue), label: 'Prime', color: PRIME_COLOR, prev: prevMonthTotals?.primeRevenue, current: totals.primeRevenue },
+        ].filter((m, i) => i === 0 || m.current > 0).slice(0, 6).map((metric, i, arr) => {
           const pctChange = getPercentChange(metric.current, metric.prev);
           return (
             <div key={i} style={{ ...styles.metricCard, borderRight: i === arr.length - 1 ? 'none' : '1px solid #eee' }}>
               <div style={styles.metricLabel}>{metric.label}</div>
-              <div style={{ ...styles.metricValue, color: metric.color || '#1a1a1a' }}>{metric.value}</div>
+              <div style={styles.metricValue}>{metric.value}</div>
               {pctChange !== null && (
                 <div style={{ 
                   fontSize: '13px', 
@@ -1513,9 +1633,9 @@ export default function App() {
 
       {/* Tabs */}
       <div style={styles.tabs}>
-        {['overview', 'youtube', 'facebook', 'msn', 'tubi', 'last7days', 'trends'].map(tab => (
+        {['overview', 'youtube', 'facebook', 'msn', 'tubi', 'prime', 'last7days', 'trends'].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={styles.tab(activeTab === tab)}>
-            {tab === 'last7days' ? 'Last 7 Days' : tab === 'msn' ? 'MSN' : tab === 'tubi' ? 'Tubi' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === 'last7days' ? 'Last 7 Days' : tab === 'msn' ? 'MSN' : tab === 'tubi' ? 'Tubi' : tab === 'prime' ? 'Prime Video' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
@@ -1531,12 +1651,13 @@ export default function App() {
                 <BarChart data={top10Revenue} layout="vertical" margin={{ left: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#eee" horizontal={true} vertical={false} />
                   <XAxis type="number" tickFormatter={formatCurrency} stroke="#999" fontSize={12} />
-                  <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 13, fill: '#1a1a1a' }} stroke="#999" />
+                  <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 13, fill: COLORS.black }} stroke="#999" />
                   <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px' }} />
-                  <Bar dataKey="youtube" stackId="a" fill="#1a1a1a" name="YouTube" />
-                  <Bar dataKey="facebook" stackId="a" fill={ACCENT} name="Facebook" />
+                  <Bar dataKey="youtube" stackId="a" fill={YOUTUBE_COLOR} name="YouTube" />
+                  <Bar dataKey="facebook" stackId="a" fill={FACEBOOK_COLOR} name="Facebook" />
                   <Bar dataKey="msn" stackId="a" fill={MSN_COLOR} name="MSN" />
-                  <Bar dataKey="tubi" stackId="a" fill={TUBI_COLOR} name="Tubi" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="tubi" stackId="a" fill={TUBI_COLOR} name="Tubi" />
+                  <Bar dataKey="prime" stackId="a" fill={PRIME_COLOR} name="Prime" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -1546,7 +1667,7 @@ export default function App() {
                 <PieChart>
                   <Pie data={platformBreakdown} cx="50%" cy="50%" innerRadius={70} outerRadius={110} dataKey="value" stroke="none">
                     {platformBreakdown.map((entry, index) => (
-                      <Cell key={index} fill={entry.name === 'YouTube' ? '#1a1a1a' : entry.name === 'Facebook' ? ACCENT : entry.name === 'MSN' ? MSN_COLOR : TUBI_COLOR} />
+                      <Cell key={index} fill={entry.name === 'YouTube' ? YOUTUBE_COLOR : entry.name === 'Facebook' ? FACEBOOK_COLOR : entry.name === 'MSN' ? MSN_COLOR : entry.name === 'Tubi' ? TUBI_COLOR : PRIME_COLOR} />
                     ))}
                   </Pie>
                   <Tooltip formatter={(value) => formatCurrency(value)} />
@@ -1554,11 +1675,11 @@ export default function App() {
               </ResponsiveContainer>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '16px', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <div style={{ width: '10px', height: '10px', background: '#1a1a1a', borderRadius: '2px' }}></div>
+                  <div style={{ width: '10px', height: '10px', background: YOUTUBE_COLOR, borderRadius: '2px' }}></div>
                   <span style={{ fontSize: '12px', color: '#666' }}>YouTube</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <div style={{ width: '10px', height: '10px', background: ACCENT, borderRadius: '2px' }}></div>
+                  <div style={{ width: '10px', height: '10px', background: FACEBOOK_COLOR, borderRadius: '2px' }}></div>
                   <span style={{ fontSize: '12px', color: '#666' }}>Facebook</span>
                 </div>
                 {totals.msnRevenue > 0 && (
@@ -1571,6 +1692,12 @@ export default function App() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <div style={{ width: '10px', height: '10px', background: TUBI_COLOR, borderRadius: '2px' }}></div>
                     <span style={{ fontSize: '12px', color: '#666' }}>Tubi</span>
+                  </div>
+                )}
+                {totals.primeRevenue > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ width: '10px', height: '10px', background: PRIME_COLOR, borderRadius: '2px' }}></div>
+                    <span style={{ fontSize: '12px', color: '#666' }}>Prime</span>
                   </div>
                 )}
               </div>
@@ -1588,6 +1715,7 @@ export default function App() {
                 <th style={styles.thRight}>Facebook</th>
                 <th style={styles.thRight}>MSN</th>
                 <th style={styles.thRight}>Tubi</th>
+                <th style={styles.thRight}>Prime</th>
                 <th style={styles.thRight}>Total</th>
               </tr>
             </thead>
@@ -1600,18 +1728,20 @@ export default function App() {
                   <td style={{ ...styles.tdRight, color: client.facebook > 0 ? ACCENT_DARK : '#ccc' }}>{formatCurrency(client.facebook)}</td>
                   <td style={{ ...styles.tdRight, color: client.msn > 0 ? MSN_COLOR : '#ccc' }}>{formatCurrency(client.msn)}</td>
                   <td style={{ ...styles.tdRight, color: client.tubi > 0 ? TUBI_COLOR : '#ccc' }}>{formatCurrency(client.tubi)}</td>
+                  <td style={{ ...styles.tdRight, color: client.prime > 0 ? PRIME_COLOR : '#ccc' }}>{formatCurrency(client.prime)}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(client.total)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
-              <tr style={{ background: '#fafafa' }}>
+              <tr style={{ background: COLORS.cream }}>
                 <td style={styles.td}></td>
                 <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                 <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(totals.youtubeRevenue)}</td>
                 <td style={{ ...styles.tdRight, fontWeight: '600', color: ACCENT_DARK }}>{formatCurrency(totals.facebookRevenue)}</td>
                 <td style={{ ...styles.tdRight, fontWeight: '600', color: MSN_COLOR }}>{formatCurrency(totals.msnRevenue)}</td>
                 <td style={{ ...styles.tdRight, fontWeight: '600', color: TUBI_COLOR }}>{formatCurrency(totals.tubiRevenue)}</td>
+                <td style={{ ...styles.tdRight, fontWeight: '600', color: PRIME_COLOR }}>{formatCurrency(totals.primeRevenue)}</td>
                 <td style={{ ...styles.tdRight, fontWeight: '700', fontSize: '16px' }}>{formatCurrency(totals.totalRevenue)}</td>
               </tr>
             </tfoot>
@@ -1636,7 +1766,7 @@ export default function App() {
           
           {/* Show message when no data */}
           {youtubeData.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
+            <div style={{ textAlign: 'center', padding: '48px', background: COLORS.cream, borderRadius: '12px', marginBottom: '32px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No YouTube data for this month</div>
               <div style={{ fontSize: '14px', color: '#666' }}>
                 {isAdmin 
@@ -1715,7 +1845,7 @@ export default function App() {
             )}
           </div>
           {facebookData.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
+            <div style={{ textAlign: 'center', padding: '48px', background: COLORS.cream, borderRadius: '12px', marginBottom: '32px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Facebook data for this month</div>
               <div style={{ fontSize: '14px', color: '#666' }}>
                 {isAdmin 
@@ -1748,7 +1878,7 @@ export default function App() {
                 ))}
               </tbody>
               <tfoot>
-                <tr style={{ background: '#fafafa' }}>
+                <tr style={{ background: COLORS.cream }}>
                   <td style={styles.td}></td>
                   <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                   <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(facebookData.reduce((s, p) => s + p.revenue, 0))}</td>
@@ -1777,7 +1907,7 @@ export default function App() {
           </div>
           
           {msnData.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
+            <div style={{ textAlign: 'center', padding: '48px', background: COLORS.cream, borderRadius: '12px', marginBottom: '32px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No MSN data for this month</div>
               <div style={{ fontSize: '14px', color: '#666' }}>
                 {isAdmin 
@@ -1813,7 +1943,7 @@ export default function App() {
                 ))}
               </tbody>
               <tfoot>
-                <tr style={{ background: '#fafafa' }}>
+                <tr style={{ background: COLORS.cream }}>
                   <td style={styles.td}></td>
                   <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                   <td style={styles.tdRight}>{formatCurrency(msnData.reduce((s, b) => s + b.embeddedRevenue, 0))}</td>
@@ -1843,7 +1973,7 @@ export default function App() {
           </div>
           
           {tubiData.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '48px', background: '#fafafa', borderRadius: '12px', marginBottom: '32px' }}>
+            <div style={{ textAlign: 'center', padding: '48px', background: COLORS.cream, borderRadius: '12px', marginBottom: '32px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Tubi data for this month</div>
               <div style={{ fontSize: '14px', color: '#666' }}>
                 {isAdmin 
@@ -1877,12 +2007,72 @@ export default function App() {
                 ))}
               </tbody>
               <tfoot>
-                <tr style={{ background: '#fafafa' }}>
+                <tr style={{ background: COLORS.cream }}>
                   <td style={styles.td}></td>
                   <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                   <td style={styles.tdRight}>{formatNumber(tubiData.reduce((s, p) => s + p.impressions, 0))}</td>
                   <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(tubiData.reduce((s, p) => s + p.revenue, 0))}</td>
                   <td style={styles.tdRight}></td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Prime Video Tab */}
+      {activeTab === 'prime' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+            <div>
+              <h2 style={styles.sectionTitle}>Prime Video Titles</h2>
+              <p style={styles.sectionSubtitle}>Amazon Prime Video revenue for {selectedMonth}</p>
+            </div>
+            {isAdmin && primeData.length > 0 && (
+              <button onClick={() => clearPlatformData('prime')} style={{ padding: '8px 16px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
+                Clear Prime Data
+              </button>
+            )}
+          </div>
+          
+          {primeData.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '48px', background: COLORS.cream, borderRadius: '12px', marginBottom: '32px' }}>
+              <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Prime Video data for this month</div>
+              <div style={{ fontSize: '14px', color: '#666' }}>
+                {isAdmin 
+                  ? 'Upload a Prime Video CSV export using the drop zone above'
+                  : 'No data available for this month'
+                }
+              </div>
+            </div>
+          )}
+          
+          {primeData.length > 0 && (
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={{ ...styles.th, width: '48px' }}>#</th>
+                  <th style={styles.th}>Title</th>
+                  <th style={styles.thRight}>Watch Hours</th>
+                  <th style={styles.thRight}>Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedPrimeData.map((title, i) => (
+                  <tr key={i}>
+                    <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
+                    <td style={{ ...styles.td, fontWeight: '500' }}>{title.title}</td>
+                    <td style={styles.tdRight}>{formatNumber(title.watchHours)}</td>
+                    <td style={{ ...styles.tdRight, fontWeight: '600', color: PRIME_COLOR }}>{formatCurrency(title.revenue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: COLORS.cream }}>
+                  <td style={styles.td}></td>
+                  <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
+                  <td style={styles.tdRight}>{formatNumber(primeData.reduce((s, t) => s + t.watchHours, 0))}</td>
+                  <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(primeData.reduce((s, t) => s + t.revenue, 0))}</td>
                 </tr>
               </tfoot>
             </table>
@@ -2004,19 +2194,19 @@ export default function App() {
               
               {/* 7-Day Summary Cards */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
-                <div style={{ background: '#fafafa', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                <div style={{ background: COLORS.cream, padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>Facebook Revenue</div>
                   <div style={{ fontSize: '24px', fontWeight: '700', color: ACCENT_DARK }}>
                     {formatCurrency(last7DaysData.facebookDaily?.reduce((s, d) => s + d.revenue, 0) || 0)}
                   </div>
                 </div>
-                <div style={{ background: '#fafafa', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                <div style={{ background: COLORS.cream, padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>YouTube Revenue</div>
                   <div style={{ fontSize: '24px', fontWeight: '700', color: '#ff0000' }}>
                     {formatCurrency(last7DaysData.youtubeDaily?.reduce((s, d) => s + d.revenue, 0) || 0)}
                   </div>
                 </div>
-                <div style={{ background: '#fafafa', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                <div style={{ background: COLORS.cream, padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>Total Revenue</div>
                   <div style={{ fontSize: '24px', fontWeight: '700' }}>
                     {formatCurrency(
@@ -2025,7 +2215,7 @@ export default function App() {
                     )}
                   </div>
                 </div>
-                <div style={{ background: '#fafafa', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
+                <div style={{ background: COLORS.cream, padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>Avg Daily Revenue</div>
                   <div style={{ fontSize: '24px', fontWeight: '700' }}>
                     {formatCurrency(
@@ -2062,7 +2252,7 @@ export default function App() {
                       ))}
                     </tbody>
                     <tfoot>
-                      <tr style={{ background: '#fafafa' }}>
+                      <tr style={{ background: COLORS.cream }}>
                         <td style={styles.td}></td>
                         <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                         <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(last7DaysData.facebook.reduce((s, p) => s + p.revenue, 0))}</td>
@@ -2100,7 +2290,7 @@ export default function App() {
                       ))}
                     </tbody>
                     <tfoot>
-                      <tr style={{ background: '#fafafa' }}>
+                      <tr style={{ background: COLORS.cream }}>
                         <td style={styles.td}></td>
                         <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
                         <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(last7DaysData.youtube.reduce((s, c) => s + c.revenue, 0))}</td>
@@ -2113,7 +2303,7 @@ export default function App() {
               )}
             </>
           ) : (
-            <div style={{ textAlign: 'center', padding: '64px', background: '#fafafa', borderRadius: '12px' }}>
+            <div style={{ textAlign: 'center', padding: '64px', background: COLORS.cream, borderRadius: '12px' }}>
               <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Last 7 Days data available</div>
               <div style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>
                 Data is auto-fetched daily at 6am Pacific.
@@ -2172,11 +2362,12 @@ export default function App() {
                 <XAxis dataKey="month" stroke="#999" tick={{ fontSize: 13 }} />
                 <YAxis stroke="#999" tickFormatter={formatCurrency} tick={{ fontSize: 12 }} />
                 <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px' }} />
-                <Line type="monotone" dataKey="total" stroke="#1a1a1a" strokeWidth={2} name="Total" dot={{ fill: '#1a1a1a' }} />
-                <Line type="monotone" dataKey="youtube" stroke="#666" strokeWidth={2} name="YouTube" dot={{ fill: '#666' }} />
-                <Line type="monotone" dataKey="facebook" stroke={ACCENT_DARK} strokeWidth={2} name="Facebook" dot={{ fill: ACCENT_DARK }} />
+                <Line type="monotone" dataKey="total" stroke={COLORS.black} strokeWidth={3} name="Total" dot={{ fill: COLORS.black }} />
+                <Line type="monotone" dataKey="youtube" stroke={YOUTUBE_COLOR} strokeWidth={2} name="YouTube" dot={{ fill: YOUTUBE_COLOR }} />
+                <Line type="monotone" dataKey="facebook" stroke={FACEBOOK_COLOR} strokeWidth={2} name="Facebook" dot={{ fill: FACEBOOK_COLOR }} />
                 <Line type="monotone" dataKey="msn" stroke={MSN_COLOR} strokeWidth={2} name="MSN" dot={{ fill: MSN_COLOR }} />
                 <Line type="monotone" dataKey="tubi" stroke={TUBI_COLOR} strokeWidth={2} name="Tubi" dot={{ fill: TUBI_COLOR }} />
+                <Line type="monotone" dataKey="prime" stroke={PRIME_COLOR} strokeWidth={2} name="Prime" dot={{ fill: PRIME_COLOR }} />
               </LineChart>
             </ResponsiveContainer>
           ) : (
@@ -2191,6 +2382,7 @@ export default function App() {
                   <th style={styles.thRight}>Facebook</th>
                   <th style={styles.thRight}>MSN</th>
                   <th style={styles.thRight}>Tubi</th>
+                  <th style={styles.thRight}>Prime</th>
                   <th style={styles.thRight}>Total</th>
                 </tr>
               </thead>
@@ -2202,6 +2394,7 @@ export default function App() {
                     <td style={{ ...styles.tdRight, color: ACCENT_DARK }}>{formatCurrency(row.facebook)}</td>
                     <td style={{ ...styles.tdRight, color: MSN_COLOR }}>{formatCurrency(row.msn)}</td>
                     <td style={{ ...styles.tdRight, color: TUBI_COLOR }}>{formatCurrency(row.tubi)}</td>
+                    <td style={{ ...styles.tdRight, color: PRIME_COLOR }}>{formatCurrency(row.prime)}</td>
                     <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(row.total)}</td>
                   </tr>
                 ))}
