@@ -209,7 +209,16 @@ export default function App() {
   const [allData, setAllData] = useState(() => loadFromStorage(STORAGE_KEY) || INITIAL_DATA);
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const data = loadFromStorage(STORAGE_KEY) || INITIAL_DATA;
-    return Object.keys(data).sort().pop() || 'January 2026';
+    // Sort chronologically and get most recent
+    const sorted = Object.keys(data).sort((a, b) => {
+      const parseMonth = (str) => {
+        const [monthName, year] = str.split(' ');
+        const monthIndex = ['January','February','March','April','May','June','July','August','September','October','November','December'].indexOf(monthName);
+        return new Date(parseInt(year), monthIndex);
+      };
+      return parseMonth(b) - parseMonth(a); // Most recent first
+    });
+    return sorted[0] || 'January 2026';
   });
 
   const [activeTab, setActiveTab] = useState('overview');
@@ -1497,7 +1506,7 @@ export default function App() {
             <button
               onClick={fetchYouTubeMonthlyData}
               disabled={fetchingYT || !youtubeConnected}
-              style={(fetchingYT || !youtubeConnected) ? styles.fetchBtnDisabled : { ...styles.fetchBtn, background: '#ff0000', borderColor: '#ff0000' }}
+              style={(fetchingYT || !youtubeConnected) ? styles.fetchBtnDisabled : { ...styles.fetchBtn, background: '#fff', borderColor: '#ff0000', color: '#ff0000' }}
               title={!youtubeConnected ? 'Connect YouTube first on Last 7 Days tab' : ''}
             >
               {fetchingYT ? '⏳ Fetching...' : '📺 Fetch YouTube Data'}
@@ -1507,9 +1516,9 @@ export default function App() {
                 href="/auth/google"
                 style={{ 
                   padding: '6px 12px', 
-                  background: '#ff0000', 
-                  color: '#fff', 
-                  border: 'none', 
+                  background: '#fff', 
+                  color: '#ff0000', 
+                  border: '2px solid #ff0000', 
                   borderRadius: '6px', 
                   textDecoration: 'none',
                   fontWeight: '500',
@@ -2101,9 +2110,9 @@ export default function App() {
                   href="/auth/google"
                   style={{ 
                     padding: '10px 20px', 
-                    background: '#ff0000', 
-                    color: '#fff', 
-                    border: 'none', 
+                    background: '#fff', 
+                    color: '#ff0000', 
+                    border: '2px solid #ff0000', 
                     borderRadius: '8px', 
                     textDecoration: 'none',
                     fontWeight: '600',
@@ -2316,9 +2325,9 @@ export default function App() {
                     href="/auth/google"
                     style={{ 
                       padding: '12px 24px', 
-                      background: '#ff0000', 
-                      color: '#fff', 
-                      border: 'none', 
+                      background: '#fff', 
+                      color: '#ff0000', 
+                      border: '2px solid #ff0000', 
                       borderRadius: '8px', 
                       textDecoration: 'none',
                       fontWeight: '600'
