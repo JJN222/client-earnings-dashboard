@@ -2,11 +2,38 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import * as XLSX from 'xlsx';
 
-const ACCENT = '#7DD3FC';
-const ACCENT_DARK = '#0EA5E9';
-const MSN_COLOR = '#0078D4'; // Microsoft blue
-const TUBI_COLOR = '#FF5100'; // Tubi orange
-const PRIME_COLOR = '#00A8E1'; // Prime Video blue
+// Brand Colors - Shorthand Studios + Underscore Talent palette
+// Shorthand: Dark, sophisticated charcoal backgrounds
+// Underscore: Warm sand/beige accents
+const COLORS = {
+  charcoal: '#1a1a1a',      // Primary dark (Shorthand background)
+  sand: '#C9B99A',          // Warm sand/beige (Underscore logo)
+  cream: '#F5F1EB',         // Light cream background
+  warmGray: '#6B5B4F',      // Warm brown-gray
+};
+
+// Platform colors - distinct but harmonious with brand
+const YOUTUBE_COLOR = '#2D3436';    // Deep charcoal (Shorthand vibe)
+const FACEBOOK_COLOR = '#4A6FA5';   // Muted steel blue
+const MSN_COLOR = '#6B8F71';        // Sage green (earthy, works with sand)
+const TUBI_COLOR = '#C17767';       // Terracotta/coral (warm accent)
+const PRIME_COLOR = '#B8860B';      // Dark goldenrod (premium, ties to sand)
+
+// Chart colors for pie/bar variety (brand-complementary)
+const CHART_COLORS = [
+  '#2D3436',  // Charcoal
+  '#4A6FA5',  // Steel blue
+  '#6B8F71',  // Sage
+  '#C17767',  // Terracotta
+  '#B8860B',  // Goldenrod
+  '#8B7355',  // Warm taupe
+  '#5D737E',  // Slate teal
+  '#A67C52',  // Camel
+];
+
+// UI accent colors
+const ACCENT = '#C9B99A';       // Sand (Underscore) - for highlights
+const ACCENT_DARK = '#8B7355';  // Warm taupe - for interactive elements
 const API_VERSION = 'v24.0';
 const MICRO_DIVISOR = 100000000; // microAmount ÷ this = USD
 
@@ -1627,10 +1654,11 @@ export default function App() {
                   <XAxis type="number" tickFormatter={formatCurrency} stroke="#999" fontSize={12} />
                   <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 13, fill: '#1a1a1a' }} stroke="#999" />
                   <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px' }} />
-                  <Bar dataKey="youtube" stackId="a" fill="#1a1a1a" name="YouTube" />
-                  <Bar dataKey="facebook" stackId="a" fill={ACCENT} name="Facebook" />
+                  <Bar dataKey="youtube" stackId="a" fill={YOUTUBE_COLOR} name="YouTube" />
+                  <Bar dataKey="facebook" stackId="a" fill={FACEBOOK_COLOR} name="Facebook" />
                   <Bar dataKey="msn" stackId="a" fill={MSN_COLOR} name="MSN" />
-                  <Bar dataKey="tubi" stackId="a" fill={TUBI_COLOR} name="Tubi" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="tubi" stackId="a" fill={TUBI_COLOR} name="Tubi" />
+                  <Bar dataKey="prime" stackId="a" fill={PRIME_COLOR} name="Prime" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -1640,7 +1668,7 @@ export default function App() {
                 <PieChart>
                   <Pie data={platformBreakdown} cx="50%" cy="50%" innerRadius={70} outerRadius={110} dataKey="value" stroke="none">
                     {platformBreakdown.map((entry, index) => (
-                      <Cell key={index} fill={entry.name === 'YouTube' ? '#1a1a1a' : entry.name === 'Facebook' ? ACCENT : entry.name === 'MSN' ? MSN_COLOR : entry.name === 'Tubi' ? TUBI_COLOR : PRIME_COLOR} />
+                      <Cell key={index} fill={entry.name === 'YouTube' ? YOUTUBE_COLOR : entry.name === 'Facebook' ? FACEBOOK_COLOR : entry.name === 'MSN' ? MSN_COLOR : entry.name === 'Tubi' ? TUBI_COLOR : PRIME_COLOR} />
                     ))}
                   </Pie>
                   <Tooltip formatter={(value) => formatCurrency(value)} />
@@ -1648,11 +1676,11 @@ export default function App() {
               </ResponsiveContainer>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '16px', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <div style={{ width: '10px', height: '10px', background: '#1a1a1a', borderRadius: '2px' }}></div>
+                  <div style={{ width: '10px', height: '10px', background: YOUTUBE_COLOR, borderRadius: '2px' }}></div>
                   <span style={{ fontSize: '12px', color: '#666' }}>YouTube</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <div style={{ width: '10px', height: '10px', background: ACCENT, borderRadius: '2px' }}></div>
+                  <div style={{ width: '10px', height: '10px', background: FACEBOOK_COLOR, borderRadius: '2px' }}></div>
                   <span style={{ fontSize: '12px', color: '#666' }}>Facebook</span>
                 </div>
                 {totals.msnRevenue > 0 && (
@@ -2335,9 +2363,9 @@ export default function App() {
                 <XAxis dataKey="month" stroke="#999" tick={{ fontSize: 13 }} />
                 <YAxis stroke="#999" tickFormatter={formatCurrency} tick={{ fontSize: 12 }} />
                 <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px' }} />
-                <Line type="monotone" dataKey="total" stroke="#1a1a1a" strokeWidth={2} name="Total" dot={{ fill: '#1a1a1a' }} />
-                <Line type="monotone" dataKey="youtube" stroke="#666" strokeWidth={2} name="YouTube" dot={{ fill: '#666' }} />
-                <Line type="monotone" dataKey="facebook" stroke={ACCENT_DARK} strokeWidth={2} name="Facebook" dot={{ fill: ACCENT_DARK }} />
+                <Line type="monotone" dataKey="total" stroke="#1a1a1a" strokeWidth={3} name="Total" dot={{ fill: '#1a1a1a' }} />
+                <Line type="monotone" dataKey="youtube" stroke={YOUTUBE_COLOR} strokeWidth={2} name="YouTube" dot={{ fill: YOUTUBE_COLOR }} />
+                <Line type="monotone" dataKey="facebook" stroke={FACEBOOK_COLOR} strokeWidth={2} name="Facebook" dot={{ fill: FACEBOOK_COLOR }} />
                 <Line type="monotone" dataKey="msn" stroke={MSN_COLOR} strokeWidth={2} name="MSN" dot={{ fill: MSN_COLOR }} />
                 <Line type="monotone" dataKey="tubi" stroke={TUBI_COLOR} strokeWidth={2} name="Tubi" dot={{ fill: TUBI_COLOR }} />
                 <Line type="monotone" dataKey="prime" stroke={PRIME_COLOR} strokeWidth={2} name="Prime" dot={{ fill: PRIME_COLOR }} />
