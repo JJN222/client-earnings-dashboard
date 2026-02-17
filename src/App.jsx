@@ -87,6 +87,7 @@ const getAdminFromURL = () => {
 const STORAGE_KEY = 'clientEarningsData';
 const META_CONFIG_KEY = 'metaApiConfig';
 const EXCLUDED_PAGES_KEY = 'excludedPageIds';
+const SIGNS_2026_KEY = 'signs2026Clients';
 
 const loadFromStorage = (key) => {
   try {
@@ -251,6 +252,11 @@ export default function App() {
   const [loadingPages, setLoadingPages] = useState(false);
   const [pageSearchFilter, setPageSearchFilter] = useState('');
 
+  // 2026 Signs management - per month: { 'January 2026': ['Client Name 1', 'Client Name 2'], ... }
+  const [signs2026, setSigns2026] = useState(() => loadFromStorage(SIGNS_2026_KEY) || {});
+  const [showSigns2026Manager, setShowSigns2026Manager] = useState(false);
+  const [signs2026SearchFilter, setSigns2026SearchFilter] = useState('');
+
   // Last 7 Days and MTD data (auto-fetched daily by server)
   const [last7DaysData, setLast7DaysData] = useState(null);
   const [mtdData, setMtdData] = useState(null);
@@ -303,10 +309,11 @@ export default function App() {
   useEffect(() => {
     async function loadFromDatabase() {
       try {
-        const [dbData, dbMeta, dbExcluded] = await Promise.all([
+        const [dbData, dbMeta, dbExcluded, dbSigns2026] = await Promise.all([
           loadFromDB(STORAGE_KEY),
           loadFromDB(META_CONFIG_KEY),
-          loadFromDB(EXCLUDED_PAGES_KEY)
+          loadFromDB(EXCLUDED_PAGES_KEY),
+          loadFromDB(SIGNS_2026_KEY)
         ]);
         if (dbData) {
           setAllData(dbData);
@@ -331,6 +338,7 @@ export default function App() {
             setExcludedPageIds(dbExcluded);
           }
         }
+        if (dbSigns2026) setSigns2026(dbSigns2026);
         
         // Load Last 7 Days and MTD data
         const [dbL7d, dbMtd] = await Promise.all([
@@ -1305,6 +1313,35 @@ export default function App() {
     return ((current - previous) / previous) * 100;
   };
 
+  // 2026 Signs filtered data
+  const currentSigns2026 = signs2026[selectedMonth] || [];
+  
+  const signs2026Data = useMemo(() => {
+    return combinedData.filter(client => currentSigns2026.includes(client.name));
+  }, [combinedData, currentSigns2026]);
+
+  const signs2026Totals = useMemo(() => {
+    const filtered = signs2026Data;
+    return {
+      totalRevenue: filtered.reduce((sum, d) => sum + d.total, 0),
+      youtubeRevenue: filtered.reduce((sum, d) => sum + d.youtube, 0),
+      facebookRevenue: filtered.reduce((sum, d) => sum + d.facebook, 0),
+      msnRevenue: filtered.reduce((sum, d) => sum + d.msn, 0),
+      tubiRevenue: filtered.reduce((sum, d) => sum + d.tubi, 0),
+      primeRevenue: filtered.reduce((sum, d) => sum + d.prime, 0),
+    };
+  }, [signs2026Data]);
+
+  const signs2026PlatformBreakdown = useMemo(() => {
+    return [
+      { name: 'YouTube', value: signs2026Totals.youtubeRevenue },
+      { name: 'Facebook', value: signs2026Totals.facebookRevenue },
+      { name: 'MSN', value: signs2026Totals.msnRevenue },
+      { name: 'Tubi', value: signs2026Totals.tubiRevenue },
+      { name: 'Prime', value: signs2026Totals.primeRevenue }
+    ].filter(p => p.value > 0);
+  }, [signs2026Totals]);
+
   const trendData = useMemo(() => {
     // Sort chronologically (oldest first) for trend display
     const chronoMonths = Object.keys(allData).sort((a, b) => {
@@ -1368,6 +1405,54 @@ export default function App() {
     { name: 'Tubi', value: totals.tubiRevenue },
     { name: 'Prime', value: totals.primeRevenue }
   ].filter(p => p.value > 0);
+
+  // 2026 Signs display data
+  const signs2026Top10 = signs2026Data.slice(0, 10);
+
+  // Toggle a client as 2026 sign for current month
+  const toggleSigns2026Client = (clientName) => {
+    setSigns2026(prev => {
+      const currentList = prev[selectedMonth] || [];
+      const newList = currentList.includes(clientName)
+        ? currentList.filter(n => n !== clientName)
+        : [...currentList, clientName];
+      const newState = { ...prev, [selectedMonth]: newList };
+      saveToDB(SIGNS_2026_KEY, newState);
+      return newState;
+    });
+  };
+
+  // Export 2026 Signs to CSV
+  const exportSigns2026CSV = () => {
+    const headers = ['Client', 'YouTube', 'Facebook', 'MSN', 'Tubi', 'Prime', 'Total'];
+    const rows = signs2026Data.map(client => [
+      client.name,
+      client.youtube.toFixed(2),
+      client.facebook.toFixed(2),
+      client.msn.toFixed(2),
+      client.tubi.toFixed(2),
+      client.prime.toFixed(2),
+      client.total.toFixed(2)
+    ]);
+    rows.push([
+      'TOTAL',
+      signs2026Totals.youtubeRevenue.toFixed(2),
+      signs2026Totals.facebookRevenue.toFixed(2),
+      signs2026Totals.msnRevenue.toFixed(2),
+      signs2026Totals.tubiRevenue.toFixed(2),
+      signs2026Totals.primeRevenue.toFixed(2),
+      signs2026Totals.totalRevenue.toFixed(2)
+    ]);
+    
+    const csvContent = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `2026_Signs_${selectedMonth.replace(' ', '_')}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   const formatCurrency = (val) => {
     return `$${Math.round(val).toLocaleString()}`;
@@ -1684,9 +1769,9 @@ export default function App() {
 
       {/* Tabs */}
       <div style={styles.tabs}>
-        {['overview', 'youtube', 'facebook', 'msn', 'tubi', 'prime', 'last7days', 'trends'].map(tab => (
+        {['overview', 'signs2026', 'youtube', 'facebook', 'msn', 'tubi', 'prime', 'last7days', 'trends'].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={styles.tab(activeTab === tab)}>
-            {tab === 'last7days' ? 'Last 7 Days' : tab === 'msn' ? 'MSN' : tab === 'tubi' ? 'Tubi' : tab === 'prime' ? 'Prime Video' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === 'last7days' ? 'Last 7 Days' : tab === 'msn' ? 'MSN' : tab === 'tubi' ? 'Tubi' : tab === 'prime' ? 'Prime Video' : tab === 'signs2026' ? '2026 Signs' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
@@ -1818,6 +1903,175 @@ export default function App() {
               </tr>
             </tfoot>
           </table>
+        </div>
+      )}
+
+      {/* 2026 Signs Tab */}
+      {activeTab === 'signs2026' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
+            <div>
+              <h2 style={styles.sectionTitle}>2026 Signs</h2>
+              <p style={styles.sectionSubtitle}>{currentSigns2026.length} clients selected for {selectedMonth}</p>
+            </div>
+            {isAdmin && (
+              <button 
+                onClick={() => setShowSigns2026Manager(true)} 
+                style={{ 
+                  padding: '8px 16px', 
+                  background: COLORS.lightBlue, 
+                  color: COLORS.navy, 
+                  border: 'none', 
+                  borderRadius: '6px', 
+                  fontSize: '13px', 
+                  cursor: 'pointer', 
+                  fontWeight: '500'
+                }}
+              >
+                Manage 2026 Signs
+              </button>
+            )}
+          </div>
+
+          {signs2026Data.length > 0 ? (
+            <>
+              <div style={styles.chartsRow}>
+                <div>
+                  <ResponsiveContainer width="100%" height={400}>
+                    <BarChart data={signs2026Top10} layout="vertical" margin={{ left: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#eee" horizontal={true} vertical={false} />
+                      <XAxis type="number" tickFormatter={formatCurrency} stroke="#999" fontSize={12} />
+                      <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 13, fill: COLORS.black }} stroke="#999" />
+                      <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: '#fff', border: '1px solid #eee', borderRadius: '8px' }} />
+                      <Bar dataKey="youtube" stackId="a" fill={YOUTUBE_COLOR} name="YouTube" />
+                      <Bar dataKey="facebook" stackId="a" fill={FACEBOOK_COLOR} name="Facebook" />
+                      <Bar dataKey="msn" stackId="a" fill={MSN_COLOR} name="MSN" />
+                      <Bar dataKey="tubi" stackId="a" fill={TUBI_COLOR} name="Tubi" />
+                      <Bar dataKey="prime" stackId="a" fill={PRIME_COLOR} name="Prime" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div>
+                  <div style={{ fontSize: '13px', color: '#999', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '24px' }}>Platform Split</div>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <PieChart>
+                      <Pie data={signs2026PlatformBreakdown} cx="50%" cy="50%" innerRadius={70} outerRadius={110} dataKey="value" stroke="none">
+                        {signs2026PlatformBreakdown.map((entry, index) => (
+                          <Cell key={index} fill={entry.name === 'YouTube' ? YOUTUBE_COLOR : entry.name === 'Facebook' ? FACEBOOK_COLOR : entry.name === 'MSN' ? MSN_COLOR : entry.name === 'Tubi' ? TUBI_COLOR : PRIME_COLOR} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => formatCurrency(value)} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '16px', flexWrap: 'wrap' }}>
+                    {signs2026Totals.youtubeRevenue > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ width: '10px', height: '10px', background: YOUTUBE_COLOR, borderRadius: '2px' }}></div>
+                        <span style={{ fontSize: '12px', color: '#666' }}>YouTube</span>
+                      </div>
+                    )}
+                    {signs2026Totals.facebookRevenue > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ width: '10px', height: '10px', background: FACEBOOK_COLOR, borderRadius: '2px' }}></div>
+                        <span style={{ fontSize: '12px', color: '#666' }}>Facebook</span>
+                      </div>
+                    )}
+                    {signs2026Totals.msnRevenue > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ width: '10px', height: '10px', background: MSN_COLOR, borderRadius: '2px' }}></div>
+                        <span style={{ fontSize: '12px', color: '#666' }}>MSN</span>
+                      </div>
+                    )}
+                    {signs2026Totals.tubiRevenue > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ width: '10px', height: '10px', background: TUBI_COLOR, borderRadius: '2px' }}></div>
+                        <span style={{ fontSize: '12px', color: '#666' }}>Tubi</span>
+                      </div>
+                    )}
+                    {signs2026Totals.primeRevenue > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ width: '10px', height: '10px', background: PRIME_COLOR, borderRadius: '2px' }}></div>
+                        <span style={{ fontSize: '12px', color: '#666' }}>Prime</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                <div>
+                  <h2 style={styles.sectionTitle}>2026 Signs Clients</h2>
+                  <p style={styles.sectionSubtitle}>Revenue breakdown by platform</p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button 
+                    onClick={exportSigns2026CSV} 
+                    style={{ 
+                      padding: '8px 16px', 
+                      background: '#fff', 
+                      color: COLORS.navy, 
+                      border: `1px solid ${COLORS.navy}`, 
+                      borderRadius: '6px', 
+                      fontSize: '13px', 
+                      cursor: 'pointer', 
+                      fontWeight: '500'
+                    }}
+                  >
+                    Download CSV
+                  </button>
+                </div>
+              </div>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={{ ...styles.th, width: '48px' }}>#</th>
+                    <th style={styles.th}>Client</th>
+                    <th style={styles.thRight}>YouTube</th>
+                    <th style={styles.thRight}>Facebook</th>
+                    <th style={styles.thRight}>MSN</th>
+                    <th style={styles.thRight}>Tubi</th>
+                    <th style={styles.thRight}>Prime</th>
+                    <th style={styles.thRight}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {signs2026Data.map((client, i) => (
+                    <tr key={i}>
+                      <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
+                      <td style={{ ...styles.td, fontWeight: '500' }}>{client.name}</td>
+                      <td style={{ ...styles.tdRight, color: client.youtube > 0 ? COLORS.black : '#ccc' }}>{formatCurrency(client.youtube)}</td>
+                      <td style={{ ...styles.tdRight, color: client.facebook > 0 ? FACEBOOK_COLOR : '#ccc' }}>{formatCurrency(client.facebook)}</td>
+                      <td style={{ ...styles.tdRight, color: client.msn > 0 ? MSN_COLOR : '#ccc' }}>{formatCurrency(client.msn)}</td>
+                      <td style={{ ...styles.tdRight, color: client.tubi > 0 ? TUBI_COLOR : '#ccc' }}>{formatCurrency(client.tubi)}</td>
+                      <td style={{ ...styles.tdRight, color: client.prime > 0 ? PRIME_COLOR : '#ccc' }}>{formatCurrency(client.prime)}</td>
+                      <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(client.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: COLORS.cream }}>
+                    <td style={styles.td}></td>
+                    <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
+                    <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatCurrency(signs2026Totals.youtubeRevenue)}</td>
+                    <td style={{ ...styles.tdRight, fontWeight: '600', color: FACEBOOK_COLOR }}>{formatCurrency(signs2026Totals.facebookRevenue)}</td>
+                    <td style={{ ...styles.tdRight, fontWeight: '600', color: MSN_COLOR }}>{formatCurrency(signs2026Totals.msnRevenue)}</td>
+                    <td style={{ ...styles.tdRight, fontWeight: '600', color: TUBI_COLOR }}>{formatCurrency(signs2026Totals.tubiRevenue)}</td>
+                    <td style={{ ...styles.tdRight, fontWeight: '600', color: PRIME_COLOR }}>{formatCurrency(signs2026Totals.primeRevenue)}</td>
+                    <td style={{ ...styles.tdRight, fontWeight: '700', fontSize: '16px' }}>{formatCurrency(signs2026Totals.totalRevenue)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '64px', background: COLORS.cream, borderRadius: '12px' }}>
+              <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No 2026 signs selected for {selectedMonth}</div>
+              <p style={{ color: '#666', fontSize: '14px' }}>
+                {isAdmin 
+                  ? 'Click "Manage 2026 Signs" above to select clients'
+                  : 'No clients have been marked as 2026 signs for this month'}
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -2611,6 +2865,126 @@ export default function App() {
 
             <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
               <button onClick={() => setShowPageManager(false)} style={{ ...styles.uploadBtn, flex: 1 }}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2026 Signs Manager Modal */}
+      {showSigns2026Manager && (
+        <div style={styles.modal} onClick={() => setShowSigns2026Manager(false)}>
+          <div style={{ ...styles.modalContent, maxWidth: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '20px' }}>Manage 2026 Signs</h3>
+            <p style={{ color: '#666', fontSize: '14px', marginBottom: '16px', lineHeight: '1.5' }}>
+              Select clients that are 2026 signs for <strong>{selectedMonth}</strong>. This selection is specific to each month.
+            </p>
+
+            {combinedData.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '32px 0', color: '#666' }}>
+                <p style={{ fontSize: '16px', marginBottom: '8px' }}>No clients found.</p>
+                <p style={{ fontSize: '14px' }}>Upload data first to see available clients.</p>
+              </div>
+            ) : (
+              <>
+                {/* Search */}
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    placeholder="Search clients..."
+                    value={signs2026SearchFilter}
+                    onChange={(e) => setSigns2026SearchFilter(e.target.value)}
+                    style={{ ...styles.input, marginBottom: 0, flex: 1 }}
+                  />
+                  <button 
+                    onClick={() => {
+                      const newList = combinedData.map(c => c.name);
+                      setSigns2026(prev => {
+                        const newState = { ...prev, [selectedMonth]: newList };
+                        saveToDB(SIGNS_2026_KEY, newState);
+                        return newState;
+                      });
+                    }} 
+                    style={{ ...styles.select, whiteSpace: 'nowrap', fontSize: '12px', padding: '8px 12px' }}
+                  >
+                    Select All
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setSigns2026(prev => {
+                        const newState = { ...prev, [selectedMonth]: [] };
+                        saveToDB(SIGNS_2026_KEY, newState);
+                        return newState;
+                      });
+                    }} 
+                    style={{ ...styles.select, whiteSpace: 'nowrap', fontSize: '12px', padding: '8px 12px' }}
+                  >
+                    Clear All
+                  </button>
+                </div>
+
+                {/* Stats bar */}
+                <div style={{ fontSize: '13px', color: '#666', marginBottom: '12px', padding: '8px 12px', background: '#f8f9fa', borderRadius: '8px' }}>
+                  {currentSigns2026.length} of {combinedData.length} clients selected as 2026 signs for {selectedMonth}
+                </div>
+
+                {/* Client list */}
+                <div style={{ overflowY: 'auto', flex: 1, maxHeight: '400px', border: '1px solid #eee', borderRadius: '8px' }}>
+                  {combinedData
+                    .filter(c => !signs2026SearchFilter || c.name.toLowerCase().includes(signs2026SearchFilter.toLowerCase()))
+                    .map((client) => {
+                      const isSelected = currentSigns2026.includes(client.name);
+                      return (
+                        <div
+                          key={client.name}
+                          onClick={() => toggleSigns2026Client(client.name)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '12px 16px',
+                            borderBottom: '1px solid #f0f0f0',
+                            cursor: 'pointer',
+                            background: isSelected ? '#f0f7ff' : '#fff',
+                            transition: 'background 0.15s',
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = isSelected ? '#e0efff' : '#f5f5f5'}
+                          onMouseLeave={e => e.currentTarget.style.background = isSelected ? '#f0f7ff' : '#fff'}
+                        >
+                          <div style={{
+                            width: '20px',
+                            height: '20px',
+                            borderRadius: '4px',
+                            border: isSelected ? `2px solid ${COLORS.navy}` : '2px solid #ccc',
+                            background: isSelected ? COLORS.navy : '#fff',
+                            marginRight: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                            transition: 'all 0.15s',
+                          }}>
+                            {isSelected && <span style={{ color: '#fff', fontSize: '14px', fontWeight: 'bold' }}>✓</span>}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{
+                              fontSize: '14px',
+                              fontWeight: '500',
+                              color: COLORS.black,
+                            }}>
+                              {client.name}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>
+                              {formatCurrency(client.total)} total
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </>
+            )}
+
+            <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+              <button onClick={() => setShowSigns2026Manager(false)} style={{ ...styles.uploadBtn, flex: 1 }}>Done</button>
             </div>
           </div>
         </div>
