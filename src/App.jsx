@@ -1913,6 +1913,7 @@ export default function App() {
             <div>
               <h2 style={styles.sectionTitle}>2026 Signs</h2>
               <p style={styles.sectionSubtitle}>{currentSigns2026.length} clients selected for {selectedMonth}</p>
+              <p style={{ color: '#999', fontSize: '13px', fontStyle: 'italic', marginTop: '4px' }}>Numbers reflect the first full month of revenue regardless of first post date</p>
             </div>
             {isAdmin && (
               <button 
