@@ -899,18 +899,18 @@ export default function App() {
   const parseYoutubeCSV = (text) => {
     const lines = text.trim().split('\n');
     const headers = lines[0].split(',');
-    const channelTitleIdx = headers.findIndex(h => h.includes('Channel title'));
-    const revenueIdx = headers.findIndex(h => h.includes('Estimated partner revenue'));
-    const viewsIdx = headers.findIndex(h => h === 'Views');
+    const channelTitleIdx = headers.findIndex(h => h.includes('Channel title') || h.trim() === 'Channel' || h.includes('﻿Channel'));
+    const revenueIdx = headers.findIndex(h => h.includes('Estimated partner revenue') || h.includes('Estimated revenue'));
+    const viewsIdx = headers.findIndex(h => h === 'Views' || h.trim() === 'Views');
     const cpmIdx = headers.findIndex(h => h.includes('CPM (USD)') && !h.includes('Playback'));
     const rpmIdx = headers.findIndex(h => h.includes('RPM'));
-    const subsIdx = headers.findIndex(h => h === 'Subscribers');
+    const subsIdx = headers.findIndex(h => h === 'Subscribers' || h.trim() === 'Subscribers');
     const watchHoursIdx = headers.findIndex(h => h.includes('Watch time'));
 
     const data = [];
     for (let i = 1; i < lines.length; i++) {
       const values = lines[i].split(',');
-      const channelTitle = values[channelTitleIdx];
+      const channelTitle = values[channelTitleIdx]?.trim();
       if (!channelTitle || channelTitle === 'Total' || channelTitle === '') continue;
       data.push({
         channel: channelTitle,
@@ -964,7 +964,7 @@ export default function App() {
 
   const detectFileType = (text) => {
     const firstLine = text.split('\n')[0].toLowerCase();
-    if (firstLine.includes('channel title') || (firstLine.includes('estimated partner revenue') && !firstLine.includes('program name'))) return 'youtube';
+    if (firstLine.includes('channel title') || firstLine.includes('estimated partner revenue') || (firstLine.includes('channel') && firstLine.includes('estimated revenue') && firstLine.includes('rpm'))) return 'youtube';
     if (firstLine.includes('page name') || firstLine.includes('page id') || firstLine.includes('qualified views')) return 'facebook';
     if (firstLine.includes('program name') && firstLine.includes('impressions') && firstLine.includes('ecpm')) return 'tubi';
     if (firstLine.includes('series title') && firstLine.includes('total accrued royalty')) return 'prime';
