@@ -262,6 +262,10 @@ export default function App() {
   const [mtdData, setMtdData] = useState(null);
   const [refreshingData, setRefreshingData] = useState(false);
   
+  // YouTube merge modal state
+  const [showYouTubeMergeModal, setShowYouTubeMergeModal] = useState(false);
+  const [pendingYouTubeData, setPendingYouTubeData] = useState(null);
+  
   // YouTube connection status
   const [youtubeConnected, setYoutubeConnected] = useState(false);
 
@@ -1096,8 +1100,16 @@ export default function App() {
         if (fileType === 'youtube') {
           parsedData = parseYoutubeCSV(text);
           if (parsedData.length > 0) {
-            setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], youtube: parsedData } }));
-            setUploadStatus(`✓ Loaded ${parsedData.length} YouTube channels`);
+            const existingYouTube = allData[selectedMonth]?.youtube || [];
+            if (existingYouTube.length > 0) {
+              // Show modal to ask replace or merge
+              setPendingYouTubeData(parsedData);
+              setShowYouTubeMergeModal(true);
+            } else {
+              // No existing data, just add
+              setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], youtube: parsedData } }));
+              setUploadStatus(`✓ Loaded ${parsedData.length} YouTube channels`);
+            }
           }
         } else if (fileType === 'facebook') {
           parsedData = parseFacebookCSV(text);
@@ -1122,7 +1134,7 @@ export default function App() {
       };
       reader.readAsText(file);
     }
-  }, [selectedMonth, selectedPlatform]);
+  }, [selectedMonth, selectedPlatform, allData]);
 
   const handleDragOver = useCallback((e) => { e.preventDefault(); setDragOver(true); }, []);
   const handleDragLeave = useCallback((e) => { e.preventDefault(); setDragOver(false); }, []);
@@ -1135,6 +1147,33 @@ export default function App() {
     });
   }, [processFile]);
   const handleFileSelect = (e) => { Array.from(e.target.files).forEach(processFile); };
+
+  // YouTube merge handlers
+  const handleYouTubeReplace = () => {
+    if (pendingYouTubeData) {
+      setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], youtube: pendingYouTubeData } }));
+      setUploadStatus(`✓ Replaced with ${pendingYouTubeData.length} YouTube channels`);
+    }
+    setShowYouTubeMergeModal(false);
+    setPendingYouTubeData(null);
+  };
+
+  const handleYouTubeMerge = () => {
+    if (pendingYouTubeData) {
+      const existing = allData[selectedMonth]?.youtube || [];
+      // Merge by channel name - new data overwrites existing if same channel
+      const mergedMap = new Map();
+      existing.forEach(ch => mergedMap.set(ch.channel, ch));
+      pendingYouTubeData.forEach(ch => mergedMap.set(ch.channel, ch));
+      const merged = Array.from(mergedMap.values());
+      setAllData(prev => ({ ...prev, [selectedMonth]: { ...prev[selectedMonth], youtube: merged } }));
+      const added = pendingYouTubeData.filter(ch => !existing.find(e => e.channel === ch.channel)).length;
+      const updated = pendingYouTubeData.length - added;
+      setUploadStatus(`✓ Merged: ${added} added, ${updated} updated (${merged.length} total)`);
+    }
+    setShowYouTubeMergeModal(false);
+    setPendingYouTubeData(null);
+  };
 
   const addNewMonth = () => {
     if (newMonthName && !allData[newMonthName]) {
@@ -2987,6 +3026,39 @@ export default function App() {
             <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
               <button onClick={() => setShowSigns2026Manager(false)} style={{ ...styles.uploadBtn, flex: 1 }}>Done</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* YouTube Merge Modal */}
+      {showYouTubeMergeModal && (
+        <div style={styles.modal} onClick={() => { setShowYouTubeMergeModal(false); setPendingYouTubeData(null); }}>
+          <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '20px' }}>YouTube Data Exists</h3>
+            <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px', lineHeight: '1.6' }}>
+              You already have {allData[selectedMonth]?.youtube?.length || 0} YouTube channels for {selectedMonth}.<br />
+              You're uploading {pendingYouTubeData?.length || 0} channels. What would you like to do?
+            </p>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button 
+                onClick={handleYouTubeMerge} 
+                style={{ ...styles.uploadBtn, flex: 1 }}
+              >
+                Merge (Add to existing)
+              </button>
+              <button 
+                onClick={handleYouTubeReplace} 
+                style={{ ...styles.select, flex: 1, background: '#fee2e2', color: '#dc2626', border: '1px solid #dc2626' }}
+              >
+                Replace all
+              </button>
+            </div>
+            <button 
+              onClick={() => { setShowYouTubeMergeModal(false); setPendingYouTubeData(null); }} 
+              style={{ ...styles.select, width: '100%', marginTop: '12px' }}
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
