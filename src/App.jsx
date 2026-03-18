@@ -619,7 +619,7 @@ export default function App() {
   // ============================================================
   const fetchYouTubeMonthlyData = async () => {
     if (!youtubeConnected) {
-      setUploadStatus('YouTube not connected. Go to Last 30 Days tab to connect.');
+      setUploadStatus('YouTube not connected. Go to Last 365 Days tab to connect.');
       setTimeout(() => setUploadStatus(''), 5000);
       return;
     }
@@ -694,7 +694,7 @@ export default function App() {
   const tubiData = allData[selectedMonth]?.tubi || [];
   const primeData = allData[selectedMonth]?.prime || [];
 
-  // Filter Last 30 Days data by current month's excluded pages
+  // Filter Last 365 Days data by current month's excluded pages
   const filteredL30dFacebook = useMemo(() => {
     if (!last7DaysData?.facebook) return [];
     return last7DaysData.facebook.filter(p => !currentExcluded.includes(p.pageId));
@@ -1698,7 +1698,7 @@ export default function App() {
               onClick={fetchYouTubeMonthlyData}
               disabled={fetchingYT || !youtubeConnected}
               style={(fetchingYT || !youtubeConnected) ? styles.fetchBtnDisabled : { ...styles.fetchBtn, background: '#fff', borderColor: '#ff0000', color: '#ff0000' }}
-              title={!youtubeConnected ? 'Connect YouTube first on Last 30 Days tab' : ''}
+              title={!youtubeConnected ? 'Connect YouTube first on Last 365 Days tab' : ''}
             >
               {fetchingYT ? 'Fetching...' : 'Fetch YouTube Data'}
             </button>
@@ -1835,7 +1835,7 @@ export default function App() {
       <div style={styles.tabs}>
         {['overview', 'signs2026', 'youtube', 'facebook', 'msn', 'tubi', 'prime', 'last7days', 'trends'].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={styles.tab(activeTab === tab)}>
-            {tab === 'last7days' ? 'Last 30 Days' : tab === 'msn' ? 'MSN' : tab === 'tubi' ? 'Tubi' : tab === 'prime' ? 'Prime Video' : tab === 'signs2026' ? '2026 Signs' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === 'last7days' ? 'Last 365 Days' : tab === 'msn' ? 'MSN' : tab === 'tubi' ? 'Tubi' : tab === 'prime' ? 'Prime Video' : tab === 'signs2026' ? '2026 Signs' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
@@ -2471,12 +2471,12 @@ export default function App() {
         </div>
       )}
 
-      {/* Last 30 Days Tab */}
+      {/* Last 365 Days Tab */}
       {activeTab === 'last7days' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div>
-              <h2 style={styles.sectionTitle}>Last 30 Days</h2>
+              <h2 style={styles.sectionTitle}>Last 365 Days</h2>
               <p style={styles.sectionSubtitle}>
                 {last7DaysData ? `${last7DaysData.since} to ${last7DaysData.until}` : 'No data available'}
                 {last7DaysData?.lastUpdated && (
@@ -2611,7 +2611,7 @@ export default function App() {
                   <div style={{ fontSize: '24px', fontWeight: '700' }}>
                     {formatCurrency(
                       ((filteredL30dFacebookDaily?.reduce((s, d) => s + d.revenue, 0) || 0) +
-                       (last7DaysData.youtubeDaily?.reduce((s, d) => s + d.revenue, 0) || 0)) / 30
+                       (last7DaysData.youtubeDaily?.reduce((s, d) => s + d.revenue, 0) || 0)) / 365
                     )}
                   </div>
                 </div>
@@ -2620,7 +2620,7 @@ export default function App() {
               {/* Facebook Table */}
               {filteredL30dFacebook?.length > 0 && (
                 <>
-                  <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>Facebook Pages (30 Days)</h3>
+                  <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>Facebook Pages (365 Days)</h3>
                   <table style={{ ...styles.table, marginBottom: '32px' }}>
                     <thead>
                       <tr>
@@ -2658,7 +2658,7 @@ export default function App() {
               {/* YouTube Table */}
               {filteredL30dYouTube?.length > 0 && (
                 <>
-                  <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>YouTube Channels (30 Days)</h3>
+                  <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>YouTube Channels (365 Days)</h3>
                   <table style={styles.table}>
                     <thead>
                       <tr>
@@ -2695,7 +2695,7 @@ export default function App() {
             </>
           ) : (
             <div style={{ textAlign: 'center', padding: '64px', background: COLORS.cream, borderRadius: '12px' }}>
-              <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Last 30 Days data available</div>
+              <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Last 365 Days data available</div>
               <div style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>
                 Data is auto-fetched daily at 6am Pacific.
                 {isAdmin && !youtubeConnected && ' Connect YouTube to pull channel data.'}
