@@ -693,6 +693,31 @@ export default function App() {
   const msnData = allData[selectedMonth]?.msn || [];
   const tubiData = allData[selectedMonth]?.tubi || [];
   const primeData = allData[selectedMonth]?.prime || [];
+
+  // Filter Last 30 Days data by current month's excluded pages
+  const filteredL30dFacebook = useMemo(() => {
+    if (!last7DaysData?.facebook) return [];
+    return last7DaysData.facebook.filter(p => !currentExcluded.includes(p.pageId));
+  }, [last7DaysData, currentExcluded]);
+
+  const filteredL30dYouTube = useMemo(() => {
+    // YouTube doesn't have exclusions, return as-is
+    return last7DaysData?.youtube || [];
+  }, [last7DaysData]);
+
+  // Calculate filtered daily data by scaling based on filtered revenue proportion
+  const filteredL30dFacebookDaily = useMemo(() => {
+    if (!last7DaysData?.facebookDaily || !last7DaysData?.facebook) return [];
+    const totalRevenue = last7DaysData.facebook.reduce((s, p) => s + p.revenue, 0);
+    const filteredRevenue = filteredL30dFacebook.reduce((s, p) => s + p.revenue, 0);
+    const ratio = totalRevenue > 0 ? filteredRevenue / totalRevenue : 0;
+    return last7DaysData.facebookDaily.map(d => ({
+      ...d,
+      revenue: d.revenue * ratio,
+      views: Math.round(d.views * ratio)
+    }));
+  }, [last7DaysData, filteredL30dFacebook]);
+
   const months = Object.keys(allData).sort((a, b) => {
     const parseMonth = (str) => {
       const [monthName, year] = str.split(' ');
@@ -2506,14 +2531,14 @@ export default function App() {
             </div>
           </div>
           
-          {(last7DaysData?.facebookDaily?.length > 0 || last7DaysData?.youtubeDaily?.length > 0) ? (
+          {(filteredL30dFacebookDaily?.length > 0 || last7DaysData?.youtubeDaily?.length > 0) ? (
             <>
               {/* Daily Revenue Graph - Facebook */}
-              {last7DaysData?.facebookDaily?.length > 0 && (
+              {filteredL30dFacebookDaily?.length > 0 && (
                 <div style={{ marginBottom: '32px' }}>
                   <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px', color: '#666' }}>Facebook Daily Revenue</h3>
                   <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={last7DaysData.facebookDaily}>
+                    <LineChart data={filteredL30dFacebookDaily}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
                       <XAxis 
                         dataKey="date" 
@@ -2563,7 +2588,7 @@ export default function App() {
                 <div style={{ background: COLORS.cream, padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>Facebook Revenue</div>
                   <div style={{ fontSize: '24px', fontWeight: '700', color: ACCENT_DARK }}>
-                    {formatCurrency(last7DaysData.facebookDaily?.reduce((s, d) => s + d.revenue, 0) || 0)}
+                    {formatCurrency(filteredL30dFacebookDaily?.reduce((s, d) => s + d.revenue, 0) || 0)}
                   </div>
                 </div>
                 <div style={{ background: COLORS.cream, padding: '20px', borderRadius: '12px', textAlign: 'center' }}>
@@ -2576,7 +2601,7 @@ export default function App() {
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>Total Revenue</div>
                   <div style={{ fontSize: '24px', fontWeight: '700' }}>
                     {formatCurrency(
-                      (last7DaysData.facebookDaily?.reduce((s, d) => s + d.revenue, 0) || 0) +
+                      (filteredL30dFacebookDaily?.reduce((s, d) => s + d.revenue, 0) || 0) +
                       (last7DaysData.youtubeDaily?.reduce((s, d) => s + d.revenue, 0) || 0)
                     )}
                   </div>
@@ -2585,7 +2610,7 @@ export default function App() {
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>Avg Daily Revenue</div>
                   <div style={{ fontSize: '24px', fontWeight: '700' }}>
                     {formatCurrency(
-                      ((last7DaysData.facebookDaily?.reduce((s, d) => s + d.revenue, 0) || 0) +
+                      ((filteredL30dFacebookDaily?.reduce((s, d) => s + d.revenue, 0) || 0) +
                        (last7DaysData.youtubeDaily?.reduce((s, d) => s + d.revenue, 0) || 0)) / 30
                     )}
                   </div>
@@ -2593,7 +2618,7 @@ export default function App() {
               </div>
               
               {/* Facebook Table */}
-              {last7DaysData.facebook?.length > 0 && (
+              {filteredL30dFacebook?.length > 0 && (
                 <>
                   <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>Facebook Pages (30 Days)</h3>
                   <table style={{ ...styles.table, marginBottom: '32px' }}>
@@ -2607,7 +2632,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {last7DaysData.facebook.map((page, i) => (
+                      {filteredL30dFacebook.map((page, i) => (
                         <tr key={i}>
                           <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
                           <td style={{ ...styles.td, fontWeight: '500' }}>{page.page}</td>
@@ -2621,8 +2646,8 @@ export default function App() {
                       <tr style={{ background: COLORS.cream }}>
                         <td style={styles.td}></td>
                         <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
-                        <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(last7DaysData.facebook.reduce((s, p) => s + p.revenue, 0))}</td>
-                        <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(last7DaysData.facebook.reduce((s, p) => s + p.views, 0))}</td>
+                        <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(filteredL30dFacebook.reduce((s, p) => s + p.revenue, 0))}</td>
+                        <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(filteredL30dFacebook.reduce((s, p) => s + p.views, 0))}</td>
                         <td style={styles.tdRight}></td>
                       </tr>
                     </tfoot>
@@ -2631,7 +2656,7 @@ export default function App() {
               )}
               
               {/* YouTube Table */}
-              {last7DaysData.youtube?.length > 0 && (
+              {filteredL30dYouTube?.length > 0 && (
                 <>
                   <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>YouTube Channels (30 Days)</h3>
                   <table style={styles.table}>
@@ -2645,7 +2670,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {last7DaysData.youtube.map((channel, i) => (
+                      {filteredL30dYouTube.map((channel, i) => (
                         <tr key={i}>
                           <td style={{ ...styles.td, ...styles.rowNumber }}>{String(i + 1).padStart(2, '0')}</td>
                           <td style={{ ...styles.td, fontWeight: '500' }}>{channel.channel}</td>
@@ -2659,8 +2684,8 @@ export default function App() {
                       <tr style={{ background: COLORS.cream }}>
                         <td style={styles.td}></td>
                         <td style={{ ...styles.td, fontWeight: '600' }}>Total</td>
-                        <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(last7DaysData.youtube.reduce((s, c) => s + c.revenue, 0))}</td>
-                        <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(last7DaysData.youtube.reduce((s, c) => s + c.views, 0))}</td>
+                        <td style={{ ...styles.tdRight, fontWeight: '700' }}>{formatCurrency(filteredL30dYouTube.reduce((s, c) => s + c.revenue, 0))}</td>
+                        <td style={{ ...styles.tdRight, fontWeight: '600' }}>{formatNumber(filteredL30dYouTube.reduce((s, c) => s + c.views, 0))}</td>
                         <td style={styles.tdRight}></td>
                       </tr>
                     </tfoot>
