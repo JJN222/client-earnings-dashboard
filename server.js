@@ -338,7 +338,7 @@ async function runDailyFetch() {
     const mtdUntil = `${year}-${String(month + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     
     const daysAgo = new Date(now);
-    daysAgo.setDate(daysAgo.getDate() - 365);
+    daysAgo.setDate(daysAgo.getDate() - 90);
     const l7dSince = daysAgo.toISOString().split('T')[0];
     const l7dUntil = now.toISOString().split('T')[0];
     
@@ -379,7 +379,7 @@ async function runDailyFetch() {
     );
     console.log(`✅ MTD data saved for ${currentMonthKey}`);
     
-    // === SAVE LAST 365 DAYS DATA ===
+    // === SAVE LAST 90 DAYS DATA ===
     await pool.query(
       `INSERT INTO config (key, value, updated_at) VALUES ($1, $2, NOW())
        ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
@@ -393,7 +393,7 @@ async function runDailyFetch() {
         youtubeDaily: ytL7dData.daily
       })]
     );
-    console.log(`✅ Last 365 Days data saved (${l7dSince} to ${l7dUntil})`);
+    console.log(`✅ Last 90 Days data saved (${l7dSince} to ${l7dUntil})`);
     
     console.log('🎉 Daily fetch complete!');
     
